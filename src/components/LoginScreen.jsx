@@ -8,6 +8,7 @@ export default function LoginScreen({ onLogin }) {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showPass, setShowPass] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -160,28 +161,55 @@ export default function LoginScreen({ onLogin }) {
             >
               Contraseña
             </label>
-            <input
-              id="login-pass"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={loading}
-              required
-              style={{
-                padding: "0.625rem 0.875rem",
-                borderRadius: "var(--radius-sm)",
-                border: "1px solid var(--border-strong)",
-                background: "var(--bg-elevated)",
-                color: "var(--text-primary)",
-                fontSize: "0.9375rem",
-                outline: "none",
-                transition: "border-color var(--transition-fast)",
-                opacity: loading ? 0.6 : 1,
-              }}
-              onFocus={(e) => (e.target.style.borderColor = "var(--accent-primary)")}
-              onBlur={(e) => (e.target.style.borderColor = "var(--border-strong)")}
-            />
+            <div style={{ position: "relative" }}>
+              <input
+                id="login-pass"
+                type={showPass ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={loading}
+                required
+                style={{
+                  width: "100%",
+                  padding: "0.625rem 2.5rem 0.625rem 0.875rem",
+                  borderRadius: "var(--radius-sm)",
+                  border: "1px solid var(--border-strong)",
+                  background: "var(--bg-elevated)",
+                  color: "var(--text-primary)",
+                  fontSize: "0.9375rem",
+                  outline: "none",
+                  transition: "border-color var(--transition-fast)",
+                  opacity: loading ? 0.6 : 1,
+                }}
+                onFocus={(e) => (e.target.style.borderColor = "var(--accent-primary)")}
+                onBlur={(e) => (e.target.style.borderColor = "var(--border-strong)")}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPass((v) => !v)}
+                tabIndex={-1}
+                style={{
+                  position: "absolute",
+                  right: "0.625rem",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  padding: "0.125rem",
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                <i
+                  className={`ti ${showPass ? "ti-eye-off" : "ti-eye"}`}
+                  style={{ fontSize: "17px" }}
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
           </div>
 
           {/* Botón */}
