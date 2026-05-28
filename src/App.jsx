@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import Header from "./components/Header";
+import LoginScreen from "./components/LoginScreen";
 import StepIndicator from "./components/StepIndicator";
 import UploadZone from "./components/UploadZone";
 import FolioCard from "./components/FolioCard";
@@ -18,6 +19,22 @@ import { useDocGenerator } from "./hooks/useDocGenerator";
  *   Modo XML:   Paso 1 (carga .xml)  → Paso 2 (revisión CFDI)         → Paso 3 → Paso 4
  */
 export default function App() {
+  // ─── Auth ────────────────────────────────────────────────────────────────
+  const [authed, setAuthed] = useState(() => sessionStorage.getItem("cfdi_auth") === "true");
+  const [authUser, setAuthUser] = useState(() => sessionStorage.getItem("cfdi_user") || "");
+
+  const handleLogin = (user) => {
+    setAuthUser(user);
+    setAuthed(true);
+  };
+
+  const handleLogout = () => {
+    sessionStorage.clear();
+    window.location.reload();
+  };
+
+  if (!authed) return <LoginScreen onLogin={handleLogin} />;
+
   // ─── Modo de entrada ────────────────────────────────────────────────────
   const [inputMode, setInputMode] = useState("excel"); // "excel" | "xml"
 
@@ -161,7 +178,7 @@ export default function App() {
 
   return (
     <>
-      <Header onOpenApiKey={() => setIsApiKeyModalOpen(true)} />
+      <Header onOpenApiKey={() => setIsApiKeyModalOpen(true)} user={authUser} onLogout={handleLogout} />
 
       <main className="app-container" style={{ flex: 1, marginTop: "1rem" }}>
         <StepIndicator current={step} />

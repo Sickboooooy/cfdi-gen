@@ -1,9 +1,4 @@
-import { useState } from "react";
-
-/**
- * Header — Branding Itosturre con badge DEMO y acceso a API key config
- */
-export default function Header({ onOpenApiKey }) {
+export default function Header({ onOpenApiKey, user, onLogout }) {
   return (
     <header
       style={{
@@ -63,33 +58,71 @@ export default function Header({ onOpenApiKey }) {
           </div>
         </div>
 
-        {/* API Key button */}
-        <button
-          onClick={onOpenApiKey}
-          title="Configurar API Key de Anthropic"
-          style={{
-            padding: "0.5rem",
-            width: 38,
-            height: 38,
-            borderRadius: "var(--radius-md)",
-            background: "rgba(255, 255, 255, 0.1)",
-            border: "1px solid rgba(255, 255, 255, 0.2)",
-            color: "white",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-            transition: "all 0.2s ease"
-          }}
-          onMouseOver={(e) => {
-            e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)";
-          }}
-          onMouseOut={(e) => {
-            e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
-          }}
-        >
-          <i className="ti ti-key" style={{ fontSize: "18px" }} aria-hidden="true" />
-        </button>
+        {/* Right side actions */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          {/* API Key button */}
+          <button
+            onClick={onOpenApiKey}
+            title="Configurar API Key de Anthropic"
+            style={{
+              padding: "0.5rem",
+              width: 38,
+              height: 38,
+              borderRadius: "var(--radius-md)",
+              background: "rgba(255, 255, 255, 0.1)",
+              border: "1px solid rgba(255, 255, 255, 0.2)",
+              color: "white",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+            }}
+            onMouseOver={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)"; }}
+            onMouseOut={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)"; }}
+          >
+            <i className="ti ti-key" style={{ fontSize: "18px" }} aria-hidden="true" />
+          </button>
+
+          {/* User badge + logout */}
+          {user && onLogout && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span
+                style={{
+                  fontSize: "0.8rem",
+                  fontWeight: 600,
+                  color: "rgba(255,255,255,0.85)",
+                  letterSpacing: "0.03em",
+                }}
+              >
+                {user}
+              </span>
+              <button
+                onClick={onLogout}
+                title="Cerrar sesión"
+                style={{
+                  padding: "0.375rem 0.75rem",
+                  borderRadius: "var(--radius-md)",
+                  background: "rgba(255, 255, 255, 0.1)",
+                  border: "1px solid rgba(255, 255, 255, 0.2)",
+                  color: "white",
+                  fontSize: "0.8rem",
+                  fontWeight: 500,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.35rem",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease",
+                }}
+                onMouseOver={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)"; }}
+                onMouseOut={(e) => { e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)"; }}
+              >
+                <i className="ti ti-logout" style={{ fontSize: "15px" }} aria-hidden="true" />
+                Salir
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );
