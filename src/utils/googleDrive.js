@@ -212,8 +212,9 @@ async function findDriveFolder(name, parentId) {
   const token = currentToken?.access_token;
   if (!token) return null;
 
+  const safeName = name.replace(/'/g, "\\'");
   const q = encodeURIComponent(
-    `name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false` +
+    `name = '${safeName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false` +
     (parentId ? ` and '${parentId}' in parents` : "")
   );
 

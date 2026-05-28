@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import Header from "./components/Header";
 import StepIndicator from "./components/StepIndicator";
 import UploadZone from "./components/UploadZone";
@@ -72,6 +72,10 @@ export default function App() {
       setError("Por favor selecciona un archivo .xlsx de Excel de control.");
       return;
     }
+    if (file.size > 5 * 1024 * 1024) {
+      setError("El archivo Excel es demasiado grande (máximo 5MB).");
+      return;
+    }
     setExcelParsing(true);
     setError("");
     try {
@@ -88,7 +92,7 @@ export default function App() {
   };
 
   // ─── Selección múltiple de folios ────────────────────────────────────────
-  const handleFolioSelect = (folio) => {
+  const handleFolioSelect = useCallback((folio) => {
     setSelectedFolios((prev) => {
       const isSelected = prev.some((f) => f.folio === folio.folio);
       if (isSelected) {
@@ -97,7 +101,7 @@ export default function App() {
         return [...prev, folio];
       }
     });
-  };
+  }, []);
 
   // ─── Seleccionar/Deseleccionar todos los folios ──────────────────────────
   const handleToggleAllFolios = () => {
@@ -231,7 +235,7 @@ export default function App() {
                   key={folio.folio}
                   folio={folio}
                   selected={selectedFolios.some((f) => f.folio === folio.folio)}
-                  onSelect={() => handleFolioSelect(folio)}
+                  onSelect={handleFolioSelect}
                 />
               ))}
             </div>

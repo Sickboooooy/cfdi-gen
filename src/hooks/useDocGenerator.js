@@ -9,7 +9,7 @@ import { useState, useCallback } from "react";
 import { DOCUMENT_TYPES_BATCH, TIPO_MAP } from "../utils/constants";
 import { fmt } from "../utils/formatters";
 
-function buildPrompt(cfdi, docTypeId, docLabel, rubro, instrExtra) {
+function buildPrompt(cfdi, docLabel, rubro, instrExtra) {
   const isExcel = cfdi._fromExcel === true;
 
   const productos = isExcel
@@ -117,32 +117,46 @@ export function useDocGenerator() {
     setError("");
     setResults([]);
 
+    // Sanitizar instrExtra (máx 500 caracteres, sin comandos de prompt injection obvios)
+    let sanitizedInstr = instrExtra || "";
+    if (sanitizedInstr.length > 500) {
+      sanitizedInstr = sanitizedInstr.substring(0, 500);
+    }
+    sanitizedInstr = sanitizedInstr.replace(/(?:\bignore previous\b|system:|assistant:|###)/gi, "");
+
+    // Validar longitud del API key (las claves Anthropic son ~108 chars; 300 es un límite holgado)
+    if (apiKey.length > 300) {
+      setError("La API key parece inválida (demasiado larga).");
+      setIsGenerating(false);
+      return;
+    }
+
     const selectedTypes = DOCUMENT_TYPES_BATCH.filter((dt) => docTypeIds.includes(dt.id));
     const total = cfdiArray.length * selectedTypes.length; // Total de combinaciones
-    const batchResults = [];
     let count = 0;
 
-    // Loop secuencial sobre folios y luego sobre tipos de documento
-    for (let folioIdx = 0; folioIdx < cfdiArray.length; folioIdx++) {
-      const cfdi = cfdiArray[folioIdx];
-      const folioLabel = cfdi.folio || cfdi._folioControl || `Folio ${folioIdx + 1}`;
+    try {
+      // Loop secuencial sobre folios y luego sobre tipos de documento
+      for (let folioIdx = 0; folioIdx < cfdiArray.length; folioIdx++) {
+        const cfdi = cfdiArray[folioIdx];
+        const folioLabel = cfdi.folio || cfdi._folioControl || `Folio ${folioIdx + 1}`;
 
-      for (let typeIdx = 0; typeIdx < selectedTypes.length; typeIdx++) {
-        const { id, label } = selectedTypes[typeIdx];
-        count++;
-        setProgress({
-          current: count,
-          total,
-          currentLabel: `${folioLabel} — ${label}`,
-        });
+        for (let typeIdx = 0; typeIdx < selectedTypes.length; typeIdx++) {
+          const { id, label } = selectedTypes[typeIdx];
+          count++;
+          setProgress({
+            current: count,
+            total,
+            currentLabel: `${folioLabel} — ${label}`,
+          });
 
-        try {
-          let content;
+          try {
+            let content;
 
-          // MOCK MODE PARA DEMO
-          if (apiKey.trim().toLowerCase() === "demo") {
-            await new Promise((r) => setTimeout(r, 800));
-            content = `DOCUMENTO GENERADO EN MODO DEMO
+            // MOCK MODE PARA DEMO
+            if (apiKey.trim().toLowerCase() === "demo") {
+              await new Promise((r) => setTimeout(r, 800));
+              content = `DOCUMENTO GENERADO EN MODO DEMO
 TIPO: ${label}
 RUBRO: ${rubro}
 FOLIO: ${folioLabel}
@@ -162,61 +176,66 @@ SEGUNDA. Este documento fue generado en modo demo y es únicamente para demostra
 
 ___________________________           ___________________________
 Emisor: ${cfdi.emisor.rfc}              Receptor: ${cfdi.receptor.rfc}`;
-          } else {
-            // Llamada real a Anthropic
-            const prompt = buildPrompt(cfdi, id, label, rubro, instrExtra);
-            const response = await fetch("https://api.anthropic.com/v1/messages", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-api-key": apiKey,
-                "anthropic-version": "2023-06-01",
-                "anthropic-dangerous-direct-browser-access": "true",
+            } else {
+              // Llamada real a Anthropic
+              const prompt = buildPrompt(cfdi, label, rubro, sanitizedInstr);
+              const response = await fetch("https://api.anthropic.com/v1/messages", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-api-key": apiKey,
+                  "anthropic-version": "2023-06-01",
+                  "anthropic-dangerous-direct-browser-access": "true",
+                },
+                body: JSON.stringify({
+                  model: "claude-sonnet-4-20250514",
+                  max_tokens: 4000,
+                  messages: [{ role: "user", content: prompt }],
+                }),
+              });
+
+              const data = await response.json();
+
+              if (data.error) {
+                throw new Error(data.error.message || "Error de la API de Anthropic");
+              }
+
+              content = (data.content || []).map((b) => b.text || "").join("");
+              if (!content) {
+                throw new Error("La API no devolvió contenido.");
+              }
+            }
+
+            // Agregar folio al resultado para identificación
+            setResults((prev) => [
+              ...prev,
+              {
+                docTypeId: id,
+                label,
+                content,
+                folio: folioLabel,
+                folioIdx,
               },
-              body: JSON.stringify({
-                model: "claude-sonnet-4-20250514",
-                max_tokens: 4000,
-                messages: [{ role: "user", content: prompt }],
-              }),
-            });
-
-            const data = await response.json();
-
-            if (data.error) {
-              throw new Error(data.error.message || "Error de la API de Anthropic");
-            }
-
-            content = (data.content || []).map((b) => b.text || "").join("");
-            if (!content) {
-              throw new Error("La API no devolvió contenido.");
-            }
+            ]);
+          } catch (err) {
+            const msg = err.message || "Error desconocido";
+            setResults((prev) => [
+              ...prev,
+              {
+                docTypeId: id,
+                label,
+                content: "",
+                error: msg,
+                folio: folioLabel,
+                folioIdx,
+              },
+            ]);
           }
-
-          // Agregar folio al resultado para identificación
-          batchResults.push({
-            docTypeId: id,
-            label,
-            content,
-            folio: folioLabel,
-            folioIdx,
-          });
-          setResults([...batchResults]);
-        } catch (err) {
-          const msg = err.message || "Error desconocido";
-          batchResults.push({
-            docTypeId: id,
-            label,
-            content: "",
-            error: msg,
-            folio: folioLabel,
-            folioIdx,
-          });
-          setResults([...batchResults]);
         }
       }
+    } finally {
+      setIsGenerating(false);
     }
-
-    setIsGenerating(false);
   }, []);
 
   const clearResults = useCallback(() => {

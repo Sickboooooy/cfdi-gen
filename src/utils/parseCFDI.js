@@ -7,12 +7,7 @@
  */
 
 function getByLocalName(doc, localName) {
-  const all = doc.getElementsByTagName("*");
-  const results = [];
-  for (const el of all) {
-    if (el.localName === localName) results.push(el);
-  }
-  return results;
+  return Array.from(doc.getElementsByTagNameNS("*", localName));
 }
 
 /**
@@ -43,6 +38,11 @@ function ga(el, ...attrs) {
  * @throws {Error} si el XML es inválido o no contiene nodo Comprobante
  */
 export function parseCFDI(xmlString) {
+  // Límite de tamaño: 500KB = 512,000 bytes/caracteres aproximadamente
+  if (xmlString && xmlString.length > 512000) {
+    throw new Error("El archivo XML excede el límite máximo permitido de 500KB.");
+  }
+
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlString, "text/xml");
 

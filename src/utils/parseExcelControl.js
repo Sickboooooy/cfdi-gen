@@ -141,6 +141,11 @@ export async function parseExcelControl(file) {
 
   // Iterar desde fila 1 (índice 1, saltando fila 0 = headers)
   for (let r = 1; r <= maxRow; r++) {
+    // Desahogar el Event Loop cada 50 filas para no congelar la UI
+    if (r % 50 === 0) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
     const folioVal = cellVal(ws, COL.FOLIO, r);
 
     // Ignorar filas con columna A vacía o null

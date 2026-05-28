@@ -4,15 +4,17 @@
  * Props:
  *   folio     {Object}   — objeto Folio parseado
  *   selected  {boolean}  — si está seleccionado
- *   onSelect  {Function} — callback() al hacer clic
+ *   onSelect  {Function} — callback(folio) al hacer clic
  */
+
+import { memo } from "react";
 
 const MXN = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" });
 
-export default function FolioCard({ folio, selected, onSelect }) {
+function FolioCard({ folio, selected, onSelect }) {
   return (
     <button
-      onClick={onSelect}
+      onClick={() => onSelect(folio)}
       aria-pressed={selected}
       style={{
         width: "100%",
@@ -130,3 +132,5 @@ export default function FolioCard({ folio, selected, onSelect }) {
     </button>
   );
 }
+
+export default memo(FolioCard);
