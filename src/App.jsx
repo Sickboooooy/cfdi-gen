@@ -13,13 +13,8 @@ import { parseExcelControl, folioToCfdi } from "./utils/parseExcelControl";
 import { parseCFDI } from "./utils/parseCFDI";
 import { useDocGenerator } from "./hooks/useDocGenerator";
 
-/**
- * App — Flujo de 4 pasos con dos modos de entrada:
- *   Modo Excel: Paso 1 (carga .xlsx) → Paso 2 (selección multi-folio) → Paso 3 → Paso 4
- *   Modo XML:   Paso 1 (carga .xml)  → Paso 2 (revisión CFDI)         → Paso 3 → Paso 4
- */
+// ─── Auth gate ───────────────────────────────────────────────────────────────
 export default function App() {
-  // ─── Auth ────────────────────────────────────────────────────────────────
   const [authed, setAuthed] = useState(() => sessionStorage.getItem("cfdi_auth") === "true");
   const [authUser, setAuthUser] = useState(() => sessionStorage.getItem("cfdi_user") || "");
 
@@ -34,11 +29,15 @@ export default function App() {
   };
 
   if (!authed) return <LoginScreen onLogin={handleLogin} />;
+  return <AppContent user={authUser} onLogout={handleLogout} />;
+}
 
-  // ─── Modo de entrada ────────────────────────────────────────────────────
+// ─── App principal ───────────────────────────────────────────────────────────
+function AppContent({ user, onLogout }) {
+  // Modo de entrada
   const [inputMode, setInputMode] = useState("excel"); // "excel" | "xml"
 
-  // ─── Estado del flujo ───────────────────────────────────────────────────
+  // Estado del flujo
   const [step, setStep] = useState(1);
 
   // Excel
@@ -178,7 +177,7 @@ export default function App() {
 
   return (
     <>
-      <Header onOpenApiKey={() => setIsApiKeyModalOpen(true)} user={authUser} onLogout={handleLogout} />
+      <Header onOpenApiKey={() => setIsApiKeyModalOpen(true)} user={user} onLogout={onLogout} />
 
       <main className="app-container" style={{ flex: 1, marginTop: "1rem" }}>
         <StepIndicator current={step} />
@@ -422,9 +421,7 @@ export default function App() {
                 padding: "0.75rem 1rem",
                 marginBottom: "1rem",
                 borderRadius: "var(--radius-sm)",
-                background: inputMode === "xml"
-                  ? "rgba(99, 102, 241, 0.1)"
-                  : "rgba(99, 102, 241, 0.1)",
+                background: "rgba(99, 102, 241, 0.1)",
                 border: "1px solid rgba(99, 102, 241, 0.25)",
                 fontSize: "0.875rem",
                 color: "var(--text-secondary)",
