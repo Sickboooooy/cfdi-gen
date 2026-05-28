@@ -4,7 +4,7 @@
  */
 export default function StepIndicator({ current }) {
   const steps = [
-    { n: 1, label: "Cargar CFDI", icon: "ti-upload" },
+    { n: 1, label: "Cargar archivo", icon: "ti-upload" },
     { n: 2, label: "Revisar datos", icon: "ti-list-search" },
     { n: 3, label: "Configurar", icon: "ti-settings" },
     { n: 4, label: "Documento", icon: "ti-file-check" },

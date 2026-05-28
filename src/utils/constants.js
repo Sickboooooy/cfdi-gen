@@ -54,6 +54,16 @@ export const DOCUMENT_TYPES = {
 // Todos los tipos de documentos aplanados
 export const ALL_DOC_TYPES = Object.values(DOCUMENT_TYPES).flat();
 
+// Para compatibility con nueva arquitectura batch: array simple de tipos
+export const DOCUMENT_TYPES_BATCH = [
+  { id: "contrato_compraventa", label: "Contrato de Compraventa", icon: "📄" },
+  { id: "contrato_servicios", label: "Contrato de Servicios", icon: "🤝" },
+  { id: "constancia_entrega", label: "Constancia de Entrega", icon: "✅" },
+  { id: "nota_remision", label: "Nota de Remisión", icon: "📋" },
+  { id: "acta_recepcion", label: "Acta de Recepción", icon: "📝" },
+  { id: "convenio_precio", label: "Convenio de Precio", icon: "💰" },
+];
+
 // 16 rubros configurados
 export const RUBROS = [
   "Construcción y obra civil",

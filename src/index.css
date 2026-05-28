@@ -357,3 +357,37 @@ select {
     padding: 0 1rem 2rem;
   }
 }
+
+/* ─── Mode Toggle (XML / Excel) ─── */
+.mode-toggle {
+  display: flex;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.25rem;
+  gap: 0.25rem;
+}
+
+.mode-toggle-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 0.75rem;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.mode-toggle-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  box-shadow: none;
+  transform: none;
+}
+
+.mode-toggle-btn.active {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent-primary-light);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
