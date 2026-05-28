@@ -253,7 +253,7 @@ export default function DocResult({
           </div>
 
           {/* Botón de exportación único */}
-          <ExportButtons cfdis={cfdis} results={results} disabled={successCount === 0} />
+          <ExportButtons cfdis={cfdis} results={results} rubro={rubro} disabled={successCount === 0} />
         </div>
       )}
 

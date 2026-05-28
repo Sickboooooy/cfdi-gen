@@ -9,17 +9,18 @@ import DocResult from "./components/DocResult";
 import ApiKeyModal from "./components/ApiKeyModal";
 import ErrorBanner from "./components/ErrorBanner";
 import { parseExcelControl, folioToCfdi } from "./utils/parseExcelControl";
+import { parseCFDI } from "./utils/parseCFDI";
 import { useDocGenerator } from "./hooks/useDocGenerator";
 
 /**
- * App — Flujo de 3 pasos (Excel only)
- *
- * Paso 1: Carga de Excel de control
- * Paso 2: Revisión y selección de folio
- * Paso 3: Configurar tipo de documento y rubro
- * Paso 4: Documento generado + exportación (.docx / .xlsx / Drive)
+ * App — Flujo de 4 pasos con dos modos de entrada:
+ *   Modo Excel: Paso 1 (carga .xlsx) → Paso 2 (selección multi-folio) → Paso 3 → Paso 4
+ *   Modo XML:   Paso 1 (carga .xml)  → Paso 2 (revisión CFDI)         → Paso 3 → Paso 4
  */
 export default function App() {
+  // ─── Modo de entrada ────────────────────────────────────────────────────
+  const [inputMode, setInputMode] = useState("excel"); // "excel" | "xml"
+
   // ─── Estado del flujo ───────────────────────────────────────────────────
   const [step, setStep] = useState(1);
 
@@ -29,7 +30,11 @@ export default function App() {
   const [excelFileName, setExcelFileName] = useState("");
   const [excelParsing, setExcelParsing] = useState(false);
 
-  // CFDIs de los folios seleccionados
+  // XML
+  const [xmlFileName, setXmlFileName] = useState("");
+  const [xmlParsing, setXmlParsing] = useState(false);
+
+  // CFDIs de los folios seleccionados (Excel) o del XML parseado
   const [cfdis, setCfdis] = useState([]);
 
   // Config del documento (batch)
@@ -40,7 +45,6 @@ export default function App() {
   // Modal API key
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
 
-  // Hook generador de Anthropic (batch)
   const { generateBatch, isGenerating, progress, results, error: genError, setError, clearResults } = useDocGenerator();
 
   // ─── Reset completo ─────────────────────────────────────────────────────
@@ -50,6 +54,7 @@ export default function App() {
     setFolios([]);
     setSelectedFolios([]);
     setExcelFileName("");
+    setXmlFileName("");
     setSelectedDocTypes([]);
     setRubro("");
     setInstrExtra("");
@@ -63,6 +68,12 @@ export default function App() {
     setInstrExtra("");
     clearResults();
     setStep(3);
+  };
+
+  // ─── Cambio de modo en Paso 1 ────────────────────────────────────────────
+  const handleModeChange = (mode) => {
+    setInputMode(mode);
+    setError("");
   };
 
   // ─── Parseo Excel de control ────────────────────────────────────────────
@@ -91,7 +102,29 @@ export default function App() {
     }
   };
 
-  // ─── Selección múltiple de folios ────────────────────────────────────────
+  // ─── Parseo XML CFDI ─────────────────────────────────────────────────────
+  const handleXmlFile = async (file) => {
+    if (!file) return;
+    if (!file.name.match(/\.xml$/i)) {
+      setError("Por favor selecciona un archivo .xml de CFDI.");
+      return;
+    }
+    setXmlParsing(true);
+    setError("");
+    try {
+      const text = await file.text();
+      const cfdi = parseCFDI(text);
+      setCfdis([cfdi]);
+      setXmlFileName(file.name);
+      setStep(2);
+    } catch (err) {
+      setError(`Error al parsear CFDI: ${err.message}`);
+    } finally {
+      setXmlParsing(false);
+    }
+  };
+
+  // ─── Selección múltiple de folios (Excel) ────────────────────────────────
   const handleFolioSelect = useCallback((folio) => {
     setSelectedFolios((prev) => {
       const isSelected = prev.some((f) => f.folio === folio.folio);
@@ -103,7 +136,6 @@ export default function App() {
     });
   }, []);
 
-  // ─── Seleccionar/Deseleccionar todos los folios ──────────────────────────
   const handleToggleAllFolios = () => {
     if (selectedFolios.length === folios.length) {
       setSelectedFolios([]);
@@ -112,7 +144,7 @@ export default function App() {
     }
   };
 
-  // ─── Avance a Paso 3 con múltiples CFDIs ──────────────────────────────
+  // ─── Avance a Paso 3 desde Excel ──────────────────────────────────────────
   const handleFolioContinue = () => {
     if (selectedFolios.length === 0) return;
     const mappedCfdis = selectedFolios.map((folio) => folioToCfdi(folio));
@@ -120,7 +152,7 @@ export default function App() {
     setStep(3);
   };
 
-  // ─── Generación batch de documentos (múltiples CFDIs) ────────────────────
+  // ─── Generación batch ────────────────────────────────────────────────────
   const handleGenerate = async (docTypeIds) => {
     setSelectedDocTypes(docTypeIds);
     setStep(4);
@@ -136,37 +168,120 @@ export default function App() {
 
         <ErrorBanner message={genError} onDismiss={() => setError("")} />
 
-        {/* ── PASO 1: Carga de Excel ──────────────────────────────────── */}
+        {/* ── PASO 1: Selector de modo + Upload ──────────────────────────── */}
         {step === 1 && (
           <div className="animate-slideUp">
-            <UploadZone
-              accept=".xlsx,.xls"
-              onFile={handleExcelFile}
-              icon={excelParsing ? "ti-loader-2" : "ti-table-filled"}
-              iconColor="var(--accent-success-light)"
-              title={excelParsing ? "Procesando Excel..." : "Arrastra el Excel de control aquí"}
-              subtitle={
-                excelParsing
-                  ? "Analizando folios y productos..."
-                  : "o haz clic para seleccionar el archivo .xlsx"
-              }
-              badge="Formato: FOLIO · Fechas · Desc1-6 · Cant1-6 · ValorU1-6"
-              badgeIcon="ti-info-circle"
-              disabled={excelParsing}
-              hint={
-                excelParsing ? (
-                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                    <i className="ti ti-loader-2" style={{ animation: "spin 0.8s linear infinite", marginRight: 4 }} />
-                    Leyendo hojas del Excel...
-                  </span>
-                ) : null
-              }
-            />
+            {/* Toggle Excel / XML */}
+            <div
+              style={{
+                display: "flex",
+                gap: "0.5rem",
+                marginBottom: "1rem",
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "var(--radius-md)",
+                padding: "0.25rem",
+              }}
+            >
+              {[
+                { id: "excel", icon: "ti-table-filled", label: "Excel de control", color: "var(--accent-success-light)" },
+                { id: "xml",   icon: "ti-file-type-xml", label: "CFDI (.xml)",      color: "var(--accent-primary-light)" },
+              ].map(({ id, icon, label, color }) => (
+                <button
+                  key={id}
+                  onClick={() => handleModeChange(id)}
+                  style={{
+                    flex: 1,
+                    padding: "0.5rem 0.75rem",
+                    fontSize: "0.8125rem",
+                    fontWeight: inputMode === id ? 600 : 400,
+                    borderRadius: "var(--radius-sm)",
+                    border: "none",
+                    background: inputMode === id ? "var(--bg-elevated)" : "transparent",
+                    color: inputMode === id ? color : "var(--text-muted)",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "0.375rem",
+                    boxShadow: inputMode === id ? "var(--shadow-sm)" : "none",
+                    transition: "all var(--transition-fast)",
+                  }}
+                >
+                  <i className={`ti ${icon}`} style={{ fontSize: "15px" }} aria-hidden="true" />
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Upload zone Excel */}
+            {inputMode === "excel" && (
+              <UploadZone
+                accept=".xlsx,.xls"
+                onFile={handleExcelFile}
+                icon={excelParsing ? "ti-loader-2" : "ti-table-filled"}
+                iconColor="var(--accent-success-light)"
+                title={excelParsing ? "Procesando Excel..." : "Arrastra el Excel de control aquí"}
+                subtitle={
+                  excelParsing
+                    ? "Analizando folios y productos..."
+                    : "o haz clic para seleccionar el archivo .xlsx"
+                }
+                badge="Formato: FOLIO · Fechas · Desc1-6 · Cant1-6 · ValorU1-6"
+                badgeIcon="ti-info-circle"
+                disabled={excelParsing}
+                hint={
+                  excelParsing ? (
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                      <i className="ti ti-loader-2" style={{ animation: "spin 0.8s linear infinite", marginRight: 4 }} />
+                      Leyendo hojas del Excel...
+                    </span>
+                  ) : null
+                }
+              />
+            )}
+
+            {/* Upload zone XML */}
+            {inputMode === "xml" && (
+              <UploadZone
+                accept=".xml"
+                onFile={handleXmlFile}
+                icon={xmlParsing ? "ti-loader-2" : "ti-file-type-xml"}
+                iconColor="var(--accent-primary-light)"
+                title={xmlParsing ? "Parseando CFDI..." : "Arrastra el CFDI (.xml) aquí"}
+                subtitle={
+                  xmlParsing
+                    ? "Extrayendo datos fiscales..."
+                    : "o haz clic para seleccionar el archivo .xml"
+                }
+                badge="Compatible con CFDI 3.3 y 4.0 — SAT México"
+                badgeIcon="ti-shield-check"
+                disabled={xmlParsing}
+                hint={
+                  xmlParsing ? (
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                      <i className="ti ti-loader-2" style={{ animation: "spin 0.8s linear infinite", marginRight: 4 }} />
+                      Procesando XML...
+                    </span>
+                  ) : null
+                }
+              />
+            )}
           </div>
         )}
 
-        {/* ── PASO 2: Selección múltiple de folios ────────────────────── */}
-        {step === 2 && folios.length > 0 && (
+        {/* ── PASO 2a: Revisión CFDI XML ──────────────────────────────────── */}
+        {step === 2 && inputMode === "xml" && cfdis.length > 0 && (
+          <CFDIReview
+            cfdi={cfdis[0]}
+            fileName={xmlFileName}
+            onBack={() => setStep(1)}
+            onNext={() => setStep(3)}
+          />
+        )}
+
+        {/* ── PASO 2b: Selección múltiple de folios Excel ─────────────────── */}
+        {step === 2 && inputMode === "excel" && folios.length > 0 && (
           <div className="animate-slideUp">
             {/* Header */}
             <div
@@ -228,7 +343,7 @@ export default function App() {
               </button>
             </div>
 
-            {/* Tarjetas de folios (multi-select) */}
+            {/* Tarjetas de folios */}
             <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1rem" }}>
               {folios.map((folio) => (
                 <FolioCard
@@ -281,23 +396,36 @@ export default function App() {
           </div>
         )}
 
-        {/* ── PASO 3: Configurar documentos (multi-select) ───────────────── */}
+        {/* ── PASO 3: Configurar documentos ───────────────────────────────── */}
         {step === 3 && cfdis.length > 0 && (
           <div>
-            {/* Resumen de folios */}
+            {/* Resumen de origen */}
             <div
               style={{
                 padding: "0.75rem 1rem",
                 marginBottom: "1rem",
                 borderRadius: "var(--radius-sm)",
-                background: "rgba(99, 102, 241, 0.1)",
+                background: inputMode === "xml"
+                  ? "rgba(99, 102, 241, 0.1)"
+                  : "rgba(99, 102, 241, 0.1)",
                 border: "1px solid rgba(99, 102, 241, 0.25)",
                 fontSize: "0.875rem",
                 color: "var(--text-secondary)",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
               }}
             >
-              📋 Folios a procesar: <strong>{cfdis.length}</strong> —{" "}
-              {selectedFolios.map((f) => f.folio).join(", ")}
+              <i
+                className={`ti ${inputMode === "xml" ? "ti-file-type-xml" : "ti-table-filled"}`}
+                style={{ fontSize: "15px", flexShrink: 0 }}
+                aria-hidden="true"
+              />
+              {inputMode === "xml" ? (
+                <>CFDI XML: <strong>{xmlFileName}</strong> — RFC {cfdis[0].emisor.rfc}</>
+              ) : (
+                <>Folios a procesar: <strong>{cfdis.length}</strong> — {selectedFolios.map((f) => f.folio).join(", ")}</>
+              )}
             </div>
 
             <DocConfig
@@ -315,7 +443,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ── PASO 4: Resultado + Exportación (batch) ───────────────────── */}
+        {/* ── PASO 4: Resultado + Exportación ─────────────────────────────── */}
         {step === 4 && cfdis.length > 0 && (
           <DocResult
             cfdis={cfdis}

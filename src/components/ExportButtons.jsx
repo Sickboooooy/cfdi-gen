@@ -1,89 +1,131 @@
 import { useState } from "react";
 import { saveAs } from "file-saver";
 import { generateExpedienteDocx } from "../utils/generateDocx";
+import { generateExpedienteXlsx } from "../utils/generateXlsx";
 import { demoPrefix } from "../utils/demoMode";
 
 /**
- * ExportButtons — Botón único para descargar Word batch
- * Filtra resultados sin error y genera un Word con todos los documentos de todos los folios
+ * ExportButtons — Descarga Word (.docx) y Excel (.xlsx) del expediente batch.
+ * Word: un único archivo con todos los documentos de todos los folios.
+ * Excel: un archivo por folio (con los documentos de ese folio como hoja 3).
  */
-export default function ExportButtons({ cfdis, results, disabled }) {
-  const [downloading, setDownloading] = useState(false);
+export default function ExportButtons({ cfdis, results, rubro, disabled }) {
+  const [downloadingDocx, setDownloadingDocx] = useState(false);
+  const [downloadingXlsx, setDownloadingXlsx] = useState(false);
 
-  const handleDownloadWord = async () => {
-    if (!cfdis || !Array.isArray(cfdis) || cfdis.length === 0 || !results || results.length === 0) return;
+  const successResults = results.filter((r) => !r.error);
+  const successCount = successResults.length;
 
-    setDownloading(true);
+  // ── Word: un archivo combinado ────────────────────────────────────────────
+  const handleDownloadDocx = async () => {
+    if (!cfdis?.length || !successCount) return;
+    setDownloadingDocx(true);
     try {
-      // Filtrar solo resultados exitosos (sin error)
-      const successResults = results.filter((r) => !r.error);
-      if (successResults.length === 0) {
-        alert("No hay documentos generados exitosamente para descargar.");
-        setDownloading(false);
-        return;
-      }
-
-      // Transformar resultados al formato que generateExpedienteDocx espera
-      // Incluir información del folio en el label
       const aiSections = successResults.map((r) => ({
         label: `${r.folio ? `[${r.folio}] ` : ""}${r.label}`,
         content: r.content,
       }));
-
-      // Usar el primer CFDI como referencia principal (para portada y estructura)
-      const primaryCfdi = cfdis[0];
-
-      // Generar Word con todos los documentos
-      const blob = await generateExpedienteDocx(primaryCfdi, aiSections);
-
-      // Crear nombre de archivo
+      const blob = await generateExpedienteDocx(cfdis[0], aiSections);
       const prefix = demoPrefix();
       const folioIds = cfdis.map((c) => c._folioControl || c.folio || "SIN-FOLIO").join("-");
-      const fileName = `${prefix}${folioIds}_Expediente_Completo_${cfdis.length}Folios.docx`;
-
-      // Descargar
-      saveAs(blob, fileName);
+      saveAs(blob, `${prefix}${folioIds}_Expediente_Completo_${cfdis.length}Folios.docx`);
     } catch (err) {
-      console.error("[ExportButtons] Error al descargar Word:", err);
-      alert(`Error al generar el Word: ${err.message}`);
+      console.error("[ExportButtons] Error Word:", err);
+      alert(`Error al generar Word: ${err.message}`);
     } finally {
-      setDownloading(false);
+      setDownloadingDocx(false);
     }
   };
 
-  const successCount = results.filter((r) => !r.error).length;
+  // ── Excel: un archivo por folio ───────────────────────────────────────────
+  const handleDownloadXlsx = () => {
+    if (!cfdis?.length || !successCount) return;
+    setDownloadingXlsx(true);
+    try {
+      cfdis.forEach((cfdi, idx) => {
+        const folioResults = successResults.filter((r) => r.folioIdx === idx);
+        if (folioResults.length === 0) return;
+        const firstDocTypeId = folioResults[0].docTypeId;
+        const aiText = folioResults.map((r) => `=== ${r.label} ===\n${r.content}`).join("\n\n");
+        generateExpedienteXlsx(cfdi, firstDocTypeId, rubro, aiText);
+      });
+    } catch (err) {
+      console.error("[ExportButtons] Error Excel:", err);
+      alert(`Error al generar Excel: ${err.message}`);
+    } finally {
+      setDownloadingXlsx(false);
+    }
+  };
+
+  const isDisabled = disabled || successCount === 0;
 
   return (
-    <button
-      onClick={handleDownloadWord}
-      disabled={disabled || downloading || successCount === 0}
-      className="btn-primary"
-      style={{
-        width: "100%",
-        padding: "1rem",
-        fontSize: "1rem",
-        fontWeight: 600,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: "0.75rem",
-      }}
-    >
-      {downloading ? (
-        <>
-          <i
-            className="ti ti-loader-2"
-            style={{ animation: "spin 0.8s linear infinite", fontSize: "20px" }}
-            aria-hidden="true"
-          />
-          Preparando Word...
-        </>
-      ) : (
-        <>
-          <i className="ti ti-download" style={{ fontSize: "20px" }} aria-hidden="true" />
-          ⬇️ Descargar Word ({successCount} documento{successCount !== 1 ? "s" : ""})
-        </>
-      )}
-    </button>
+    <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+      {/* ── Word ── */}
+      <button
+        onClick={handleDownloadDocx}
+        disabled={isDisabled || downloadingDocx}
+        className="btn-primary"
+        style={{
+          flex: 1,
+          minWidth: "200px",
+          padding: "0.875rem 1rem",
+          fontSize: "0.9375rem",
+          fontWeight: 600,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "0.625rem",
+        }}
+      >
+        {downloadingDocx ? (
+          <>
+            <i className="ti ti-loader-2" style={{ animation: "spin 0.8s linear infinite", fontSize: "18px" }} aria-hidden="true" />
+            Preparando Word...
+          </>
+        ) : (
+          <>
+            <i className="ti ti-file-type-doc" style={{ fontSize: "18px" }} aria-hidden="true" />
+            Descargar Word ({successCount} doc{successCount !== 1 ? "s" : ""})
+          </>
+        )}
+      </button>
+
+      {/* ── Excel ── */}
+      <button
+        onClick={handleDownloadXlsx}
+        disabled={isDisabled || downloadingXlsx}
+        style={{
+          flex: 1,
+          minWidth: "200px",
+          padding: "0.875rem 1rem",
+          fontSize: "0.9375rem",
+          fontWeight: 600,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "0.625rem",
+          background: "rgba(16, 185, 129, 0.12)",
+          border: "1px solid rgba(16, 185, 129, 0.35)",
+          borderRadius: "var(--radius-md)",
+          color: "var(--accent-success-light)",
+          cursor: isDisabled || downloadingXlsx ? "not-allowed" : "pointer",
+          opacity: isDisabled ? 0.5 : 1,
+          transition: "all var(--transition-fast)",
+        }}
+      >
+        {downloadingXlsx ? (
+          <>
+            <i className="ti ti-loader-2" style={{ animation: "spin 0.8s linear infinite", fontSize: "18px" }} aria-hidden="true" />
+            Preparando Excel...
+          </>
+        ) : (
+          <>
+            <i className="ti ti-file-type-xls" style={{ fontSize: "18px" }} aria-hidden="true" />
+            Descargar Excel ({cfdis?.length ?? 0} folio{cfdis?.length !== 1 ? "s" : ""})
+          </>
+        )}
+      </button>
+    </div>
   );
 }
