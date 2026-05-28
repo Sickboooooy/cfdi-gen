@@ -185,7 +185,7 @@ export default function App() {
             >
               {[
                 { id: "excel", icon: "ti-table-filled", label: "Excel de control", color: "var(--accent-success-light)" },
-                { id: "xml",   icon: "ti-file-type-xml", label: "CFDI (.xml)",      color: "var(--accent-primary-light)" },
+                // { id: "xml", icon: "ti-file-type-xml", label: "CFDI (.xml)", color: "var(--accent-primary-light)" },
               ].map(({ id, icon, label, color }) => (
                 <button
                   key={id}
