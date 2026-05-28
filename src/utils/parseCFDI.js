@@ -37,14 +37,27 @@ function ga(el, ...attrs) {
  * @returns {Object} datos parseados del CFDI
  * @throws {Error} si el XML es inválido o no contiene nodo Comprobante
  */
+const MAX_XML_SIZE = 512 * 1024;
+const CFDI_SIGNATURES = ["cfdi:Comprobante", 'xmlns:cfdi=', "TimbreFiscalDigital"];
+
 export function parseCFDI(xmlString) {
-  // Límite de tamaño: 500KB = 512,000 bytes/caracteres aproximadamente
-  if (xmlString && xmlString.length > 512000) {
-    throw new Error("El archivo XML excede el límite máximo permitido de 500KB.");
+  if (!xmlString || xmlString.length > MAX_XML_SIZE) {
+    throw new Error("El archivo XML supera el tamaño máximo permitido para un CFDI (500KB).");
   }
 
+  if (!CFDI_SIGNATURES.some((s) => xmlString.includes(s))) {
+    throw new Error(
+      "El archivo no parece ser un CFDI válido. Verifica que sea el XML descargado del SAT."
+    );
+  }
+
+  // Eliminar declaraciones DOCTYPE y ENTITY para prevenir XXE
+  const sanitized = xmlString
+    .replace(/<!ENTITY[^>]*>/gi, "")
+    .replace(/<!DOCTYPE[^[>]*(?:\[[\s\S]*?\])?\s*>/gi, "");
+
   const parser = new DOMParser();
-  const doc = parser.parseFromString(xmlString, "text/xml");
+  const doc = parser.parseFromString(sanitized, "text/xml");
 
   // Verificar errores de parseo XML
   const parseError = doc.querySelector("parsererror");

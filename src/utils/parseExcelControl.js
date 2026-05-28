@@ -115,8 +115,15 @@ const COL = {
  *   letra: string,
  * }
  */
+const MAX_XLSX_BYTES = 5 * 1024 * 1024;
+const MAX_ROWS = 500;
+
 export async function parseExcelControl(file) {
   const arrayBuffer = await file.arrayBuffer();
+
+  if (arrayBuffer.byteLength > MAX_XLSX_BYTES) {
+    throw new Error("El archivo Excel supera el tamaño máximo permitido (5MB).");
+  }
 
   const wb = XLSXJS.read(arrayBuffer, {
     type: "array",
@@ -139,8 +146,9 @@ export async function parseExcelControl(file) {
 
   const folios = [];
 
-  // Iterar desde fila 1 (índice 1, saltando fila 0 = headers)
-  for (let r = 1; r <= maxRow; r++) {
+  // Iterar desde fila 1 (índice 1, saltando fila 0 = headers); cap en MAX_ROWS
+  const lastRow = Math.min(maxRow, MAX_ROWS);
+  for (let r = 1; r <= lastRow; r++) {
     // Desahogar el Event Loop cada 50 filas para no congelar la UI
     if (r % 50 === 0) {
       await new Promise(resolve => setTimeout(resolve, 0));

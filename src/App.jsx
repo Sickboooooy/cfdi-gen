@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Header from "./components/Header";
 import LoginScreen from "./components/LoginScreen";
 import StepIndicator from "./components/StepIndicator";
@@ -12,6 +12,7 @@ import ErrorBanner from "./components/ErrorBanner";
 import { parseExcelControl, folioToCfdi } from "./utils/parseExcelControl";
 import { parseCFDI } from "./utils/parseCFDI";
 import { useDocGenerator } from "./hooks/useDocGenerator";
+import { logEvent } from "./utils/auditLog";
 
 // ─── Auth gate ───────────────────────────────────────────────────────────────
 export default function App() {
@@ -31,6 +32,8 @@ export default function App() {
   if (!authed) return <LoginScreen onLogin={handleLogin} />;
   return <AppContent user={authUser} onLogout={handleLogout} />;
 }
+
+const SESSION_TIMEOUT = 30 * 60 * 1000;
 
 // ─── App principal ───────────────────────────────────────────────────────────
 function AppContent({ user, onLogout }) {
@@ -61,7 +64,34 @@ function AppContent({ user, onLogout }) {
   // Modal API key
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
 
-  const { generateBatch, isGenerating, progress, results, error: genError, setError, clearResults } = useDocGenerator();
+  const { generateBatch, isGenerating, progress, results, error: genError, setError, clearResults, rateLimitedUntil } = useDocGenerator();
+
+  // ─── Timeout de sesión por inactividad (30 min) ──────────────────────────
+
+  const updateActivity = useCallback(() => {
+    sessionStorage.setItem("cfdi_last_activity", String(Date.now()));
+  }, []);
+
+  useEffect(() => {
+    sessionStorage.setItem("cfdi_last_activity", String(Date.now()));
+    const events = ["click", "keydown", "mousemove", "touchstart"];
+    events.forEach((ev) => document.addEventListener(ev, updateActivity, { passive: true }));
+
+    const interval = setInterval(() => {
+      const last = parseInt(sessionStorage.getItem("cfdi_last_activity") || "0");
+      if (Date.now() - last > SESSION_TIMEOUT) {
+        logEvent("SESSION_EXPIRADA", "Inactividad de 30 minutos");
+        sessionStorage.clear();
+        window.alert("Sesión expirada por inactividad.");
+        window.location.reload();
+      }
+    }, 60 * 1000);
+
+    return () => {
+      events.forEach((ev) => document.removeEventListener(ev, updateActivity));
+      clearInterval(interval);
+    };
+  }, [updateActivity]);
 
   // ─── Reset completo ─────────────────────────────────────────────────────
   const handleReset = () => {
@@ -110,6 +140,7 @@ function AppContent({ user, onLogout }) {
       setFolios(parsed);
       setSelectedFolios([]);
       setExcelFileName(file.name);
+      logEvent("ARCHIVO_CARGADO", `Excel: ${file.name} — ${parsed.length} folios`);
       setStep(2);
     } catch (err) {
       setError(`Error al parsear Excel: ${err.message}`);
@@ -132,6 +163,7 @@ function AppContent({ user, onLogout }) {
       const cfdi = parseCFDI(text);
       setCfdis([cfdi]);
       setXmlFileName(file.name);
+      logEvent("ARCHIVO_CARGADO", `XML: ${file.name}`);
       setStep(2);
     } catch (err) {
       setError(`Error al parsear CFDI: ${err.message}`);
@@ -450,7 +482,7 @@ function AppContent({ user, onLogout }) {
               setRubro={setRubro}
               instrExtra={instrExtra}
               setInstrExtra={setInstrExtra}
-              isDisabled={isGenerating}
+              isDisabled={isGenerating || Date.now() < rateLimitedUntil}
               onBack={() => setStep(2)}
               onGenerate={handleGenerate}
             />

@@ -1,14 +1,48 @@
-/**
- * Hook para generación batch de documentos con Anthropic API
- *
- * Genera múltiples documentos secuencialmente (no en paralelo) respetando rate limits
- * y manteniendo progreso visual en el UI.
- */
-
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { DOCUMENT_TYPES_BATCH, TIPO_MAP } from "../utils/constants";
 import { fmt } from "../utils/formatters";
+import { sanitizeUserInput } from "../utils/sanitize";
+import { logEvent } from "../utils/auditLog";
 
+// ─── Rate limit ──────────────────────────────────────────────────────────────
+const RATE_LIMIT = {
+  maxRequests: 10,
+  windowMs: 60 * 1000,
+  minInterval: 3000,
+  blockMs: 30 * 1000,
+};
+
+function checkRateLimit() {
+  const now = Date.now();
+
+  const lastReq = parseInt(sessionStorage.getItem("cfdi_last_req") || "0");
+  if (now - lastReq < RATE_LIMIT.minInterval) {
+    return { allowed: false };
+  }
+
+  const windowStart = parseInt(sessionStorage.getItem("cfdi_req_window") || "0");
+  const reqCount = parseInt(sessionStorage.getItem("cfdi_req_count") || "0");
+
+  if (now - windowStart > RATE_LIMIT.windowMs) {
+    sessionStorage.setItem("cfdi_req_window", String(now));
+    sessionStorage.setItem("cfdi_req_count", "0");
+    return { allowed: true };
+  }
+
+  if (reqCount >= RATE_LIMIT.maxRequests) {
+    return { allowed: false };
+  }
+
+  return { allowed: true };
+}
+
+function recordRequest() {
+  sessionStorage.setItem("cfdi_last_req", String(Date.now()));
+  const count = parseInt(sessionStorage.getItem("cfdi_req_count") || "0");
+  sessionStorage.setItem("cfdi_req_count", String(count + 1));
+}
+
+// ─── Prompt builder ───────────────────────────────────────────────────────────
 function buildPrompt(cfdi, docLabel, rubro, instrExtra) {
   const isExcel = cfdi._fromExcel === true;
 
@@ -87,56 +121,66 @@ ${instruccionUUID}
 Genera ÚNICAMENTE el texto del documento. Sin explicaciones previas, sin notas externas, sin metadatos.`;
 }
 
-/**
- * Hook para generación batch secuencial de documentos (múltiples CFDIs).
- *
- * @returns {{ generateBatch, isGenerating, progress, results, error, setError, clearResults }}
- */
+// ─── Hook ────────────────────────────────────────────────────────────────────
 export function useDocGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, currentLabel: "" });
   const [results, setResults] = useState([]);
   const [error, setError] = useState("");
+  const [rateLimitedUntil, setRateLimitedUntil] = useState(0);
+
+  // Countdown visible en ErrorBanner mientras dura el bloqueo
+  useEffect(() => {
+    if (rateLimitedUntil <= 0) return;
+    const interval = setInterval(() => {
+      const remaining = Math.ceil((rateLimitedUntil - Date.now()) / 1000);
+      if (remaining <= 0) {
+        setRateLimitedUntil(0);
+        setError("");
+      } else {
+        setError(
+          `Límite de generación alcanzado. Espera ${remaining} segundo${remaining !== 1 ? "s" : ""} antes de continuar.`
+        );
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [rateLimitedUntil]);
 
   const generateBatch = useCallback(async (cfdis, docTypeIds, rubro, instrExtra) => {
-    // Obtener API key de localStorage
-    const apiKey = localStorage.getItem("itosturre_anthropic_key");
+    // Leer API key de sessionStorage justo antes del fetch — nunca en estado React
+    const apiKey = sessionStorage.getItem("cfdi_api_key");
     if (!apiKey) {
       setError("Se requiere una API key de Anthropic. Haz clic en el ícono de llave (🔑) en el encabezado para configurarla.");
       return;
     }
 
-    // Normalizar entrada: si es un solo CFDI, convertir a array
+    if (apiKey.length > 300) {
+      setError("La API key parece inválida (demasiado larga).");
+      return;
+    }
+
     const cfdiArray = Array.isArray(cfdis) ? cfdis : [cfdis];
     if (cfdiArray.length === 0) {
       setError("No hay CFDIs para procesar.");
       return;
     }
 
+    // Sanitizar inputs del usuario antes de incluirlos en el prompt
+    const cleanRubro = sanitizeUserInput(rubro || "", 100);
+    if (cleanRubro !== (rubro || "").trim()) logEvent("INPUT_SANITIZADO", "rubro filtrado");
+
+    const cleanInstr = sanitizeUserInput(instrExtra || "", 500);
+    if (cleanInstr !== (instrExtra || "").trim()) logEvent("INPUT_SANITIZADO", "instrExtra filtrado");
+
     setIsGenerating(true);
     setError("");
     setResults([]);
 
-    // Sanitizar instrExtra (máx 500 caracteres, sin comandos de prompt injection obvios)
-    let sanitizedInstr = instrExtra || "";
-    if (sanitizedInstr.length > 500) {
-      sanitizedInstr = sanitizedInstr.substring(0, 500);
-    }
-    sanitizedInstr = sanitizedInstr.replace(/(?:\bignore previous\b|system:|assistant:|###)/gi, "");
-
-    // Validar longitud del API key (las claves Anthropic son ~108 chars; 300 es un límite holgado)
-    if (apiKey.length > 300) {
-      setError("La API key parece inválida (demasiado larga).");
-      setIsGenerating(false);
-      return;
-    }
-
     const selectedTypes = DOCUMENT_TYPES_BATCH.filter((dt) => docTypeIds.includes(dt.id));
-    const total = cfdiArray.length * selectedTypes.length; // Total de combinaciones
+    const total = cfdiArray.length * selectedTypes.length;
     let count = 0;
 
     try {
-      // Loop secuencial sobre folios y luego sobre tipos de documento
       for (let folioIdx = 0; folioIdx < cfdiArray.length; folioIdx++) {
         const cfdi = cfdiArray[folioIdx];
         const folioLabel = cfdi.folio || cfdi._folioControl || `Folio ${folioIdx + 1}`;
@@ -144,21 +188,16 @@ export function useDocGenerator() {
         for (let typeIdx = 0; typeIdx < selectedTypes.length; typeIdx++) {
           const { id, label } = selectedTypes[typeIdx];
           count++;
-          setProgress({
-            current: count,
-            total,
-            currentLabel: `${folioLabel} — ${label}`,
-          });
+          setProgress({ current: count, total, currentLabel: `${folioLabel} — ${label}` });
 
           try {
             let content;
 
-            // MOCK MODE PARA DEMO
             if (apiKey.trim().toLowerCase() === "demo") {
               await new Promise((r) => setTimeout(r, 800));
               content = `DOCUMENTO GENERADO EN MODO DEMO
 TIPO: ${label}
-RUBRO: ${rubro}
+RUBRO: ${cleanRubro}
 FOLIO: ${folioLabel}
 
 En la ciudad de Guadalajara, Jalisco, a los ${new Date().getDate()} días del mes actual...
@@ -177,8 +216,19 @@ SEGUNDA. Este documento fue generado en modo demo y es únicamente para demostra
 ___________________________           ___________________________
 Emisor: ${cfdi.emisor.rfc}              Receptor: ${cfdi.receptor.rfc}`;
             } else {
-              // Llamada real a Anthropic
-              const prompt = buildPrompt(cfdi, label, rubro, sanitizedInstr);
+              // Verificar rate limit antes de cada llamada real
+              const rl = checkRateLimit();
+              if (!rl.allowed) {
+                logEvent("RATE_LIMIT_HIT", `folio ${folioLabel}, doc ${label}`);
+                const until = Date.now() + RATE_LIMIT.blockMs;
+                setRateLimitedUntil(until);
+                setIsGenerating(false);
+                return;
+              }
+
+              recordRequest();
+
+              const prompt = buildPrompt(cfdi, label, cleanRubro, cleanInstr);
               const response = await fetch("https://api.anthropic.com/v1/messages", {
                 method: "POST",
                 headers: {
@@ -201,35 +251,14 @@ Emisor: ${cfdi.emisor.rfc}              Receptor: ${cfdi.receptor.rfc}`;
               }
 
               content = (data.content || []).map((b) => b.text || "").join("");
-              if (!content) {
-                throw new Error("La API no devolvió contenido.");
-              }
+              if (!content) throw new Error("La API no devolvió contenido.");
             }
 
-            // Agregar folio al resultado para identificación
-            setResults((prev) => [
-              ...prev,
-              {
-                docTypeId: id,
-                label,
-                content,
-                folio: folioLabel,
-                folioIdx,
-              },
-            ]);
+            logEvent("DOC_GENERADO", `${folioLabel} — ${label}`);
+            setResults((prev) => [...prev, { docTypeId: id, label, content, folio: folioLabel, folioIdx }]);
           } catch (err) {
             const msg = err.message || "Error desconocido";
-            setResults((prev) => [
-              ...prev,
-              {
-                docTypeId: id,
-                label,
-                content: "",
-                error: msg,
-                folio: folioLabel,
-                folioIdx,
-              },
-            ]);
+            setResults((prev) => [...prev, { docTypeId: id, label, content: "", error: msg, folio: folioLabel, folioIdx }]);
           }
         }
       }
@@ -244,5 +273,5 @@ Emisor: ${cfdi.emisor.rfc}              Receptor: ${cfdi.receptor.rfc}`;
     setError("");
   }, []);
 
-  return { generateBatch, isGenerating, progress, results, error, setError, clearResults };
+  return { generateBatch, isGenerating, progress, results, error, setError, clearResults, rateLimitedUntil };
 }
