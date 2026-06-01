@@ -31,9 +31,6 @@ import {
   WidthType,
   ShadingType,
   Header,
-  Footer,
-  PageNumber,
-  NumberFormat,
 } from "docx";
 
 // ─── Constantes de empresa ───────────────────────────────────────────────────
@@ -178,29 +175,6 @@ function makeHeader(folio) {
         border: {
           bottom: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
         },
-      }),
-    ],
-  });
-}
-
-function makeFooter() {
-  return new Footer({
-    children: [
-      new Paragraph({
-        children: [
-          tr("Itosturre Legaltech · Arts. 29, 29-A, 69-B CFF · Pág. ", { size: 18, color: COLORS.GRAY_TEXT }),
-          new TextRun({
-            children: [PageNumber.CURRENT],
-            font: "Arial",
-            size: 18,
-            color: COLORS.GRAY_TEXT,
-          }),
-        ],
-        alignment: AlignmentType.CENTER,
-        border: {
-          top: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
-        },
-        spacing: { before: 40 },
       }),
     ],
   });
@@ -638,7 +612,6 @@ export async function generateExpedienteDocx(cfdi, aiSections) {
   const folioId = cfdi._folioControl || cfdi.folio || "SIN-FOLIO";
 
   const header = makeHeader(folioId);
-  const footer = makeFooter();
 
   // Construir secciones IA
   const aiChildrenParts = [];
@@ -666,7 +639,6 @@ export async function generateExpedienteDocx(cfdi, aiSections) {
     sections: [
       {
         headers: { default: header },
-        footers: { default: footer },
         properties: {
           page: {
             margin: { top: 1000, right: 900, bottom: 1000, left: 900 },
