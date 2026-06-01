@@ -214,58 +214,63 @@ export async function parseExcelControl(file) {
 
 /**
  * Convierte un Folio del Excel al objeto cfdi compatible con el sistema.
- * Mapeo aprobado con valores hardcodeados para Crea → Goteborg.
  *
  * @param {Object} folio — Folio parseado del Excel
+ * @param {Object} fiscal — Datos de emisor/receptor capturados en la UI
  * @returns {Object} objeto cfdi-compatible
  */
-export function folioToCfdi(folio) {
+export function folioToCfdi(folio, fiscal = {}) {
+  const {
+    emisorRfc = "",
+    emisorNombre = "",
+    emisorRegimen = "",
+    emisorCP = "",
+    receptorRfc = "",
+    receptorNombre = "",
+    receptorUsoCFDI = "",
+    receptorCP = "",
+  } = fiscal;
+
   return {
-    // Identificación — placeholder claro en lugar de null
     uuid: "[UUID-CFDI-COMPLETAR-CON-XML-REAL]",
     version: "4.0",
-    tipo: "I", // Ingreso por defecto
+    tipo: "I",
     fecha: folio.f_sol || new Date().toISOString(),
     fechaTimbrado: folio.f_rec || null,
-    serie: "MANT",
+    serie: "",
     folio: folio.folio,
     moneda: "MXN",
-    formaPago: "03", // Transferencia electrónica
+    formaPago: "03",
     metodoPago: "PUE",
-    lugarExpedicion: "44700",
+    lugarExpedicion: emisorCP || "N/D",
 
-    // Emisor hardcodeado — Infraestructura y Materiales Crea
     emisor: {
-      rfc: "IMC240227MX5",
-      nombre: "INFRAESTRUCTURA Y MATERIALES CREA, S.A. DE C.V.",
-      regimen: "601",
+      rfc: emisorRfc || "[RFC-EMISOR]",
+      nombre: emisorNombre || "[RAZÓN SOCIAL EMISOR]",
+      regimen: emisorRegimen || "N/D",
     },
 
-    // Receptor hardcodeado — Goteborg
     receptor: {
-      rfc: "GOT211208L5A",
-      nombre: "GOTEBORG, S.A. DE C.V.",
-      usoCFDI: "G03",
-      domicilioFiscal: "45645",
+      rfc: receptorRfc || "[RFC-RECEPTOR]",
+      nombre: receptorNombre || "[RAZÓN SOCIAL RECEPTOR]",
+      usoCFDI: receptorUsoCFDI || "N/D",
+      domicilioFiscal: receptorCP || "N/D",
     },
 
-    // Conceptos mapeados desde los productos del folio
     conceptos: folio.prods.map((p) => ({
-      claveProdServ: "78101803",
+      claveProdServ: "N/D",
       descripcion: p.desc,
       cantidad: String(p.cantidad),
-      claveUnidad: "E48",
-      unidad: "Servicio",
+      claveUnidad: "N/D",
+      unidad: "Unidad",
       valorUnitario: String(p.valorUnitario),
       importe: String(p.importe),
     })),
 
-    // Totales
     subtotal: String(folio.subtotal),
     totalImpuestos: String(folio.iva),
     total: String(folio.total),
 
-    // Datos adicionales del folio Excel
     _fromExcel: true,
     _folioControl: folio.folio,
     _fechaSolicitud: folio.f_sol,
@@ -275,7 +280,6 @@ export function folioToCfdi(folio) {
     _totalLetra: folio.letra,
     _productosRaw: folio.prods,
 
-    // Metadatos de empresa para el Word
     noCertSAT: null,
   };
 }

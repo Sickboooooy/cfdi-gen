@@ -8,6 +8,7 @@ import CFDIReview from "./components/CFDIReview";
 import DocConfig from "./components/DocConfig";
 import DocResult from "./components/DocResult";
 import ApiKeyModal from "./components/ApiKeyModal";
+import FiscalConfig, { emptyFiscalConfig } from "./components/FiscalConfig";
 import ErrorBanner from "./components/ErrorBanner";
 import { parseExcelControl, folioToCfdi } from "./utils/parseExcelControl";
 import { parseCFDI } from "./utils/parseCFDI";
@@ -60,6 +61,14 @@ function AppContent({ user, onLogout }) {
   const [selectedDocTypes, setSelectedDocTypes] = useState([]);
   const [rubro, setRubro] = useState("");
   const [instrExtra, setInstrExtra] = useState("");
+
+  // Datos fiscales de la operación (emisor / receptor)
+  const [fiscalConfig, setFiscalConfig] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem("cfdi_fiscal_config");
+      return saved ? JSON.parse(saved) : emptyFiscalConfig();
+    } catch { return emptyFiscalConfig(); }
+  });
 
   // Modal API key
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
@@ -195,7 +204,7 @@ function AppContent({ user, onLogout }) {
   // ─── Avance a Paso 3 desde Excel ──────────────────────────────────────────
   const handleFolioContinue = () => {
     if (selectedFolios.length === 0) return;
-    const mappedCfdis = selectedFolios.map((folio) => folioToCfdi(folio));
+    const mappedCfdis = selectedFolios.map((folio) => folioToCfdi(folio, fiscalConfig));
     setCfdis(mappedCfdis);
     setStep(3);
   };
@@ -219,6 +228,9 @@ function AppContent({ user, onLogout }) {
         {/* ── PASO 1: Selector de modo + Upload ──────────────────────────── */}
         {step === 1 && (
           <div className="animate-slideUp">
+            {/* Datos fiscales de las partes */}
+            <FiscalConfig value={fiscalConfig} onChange={setFiscalConfig} />
+
             {/* Toggle Excel / XML */}
             <div
               style={{
