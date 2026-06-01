@@ -31,6 +31,7 @@ import {
   WidthType,
   ShadingType,
   Header,
+  Footer,
 } from "docx";
 
 // ─── Constantes de empresa ───────────────────────────────────────────────────
@@ -178,6 +179,10 @@ function makeHeader(folio) {
       }),
     ],
   });
+}
+
+function makeEmptyFooter() {
+  return new Footer({ children: [new Paragraph({ children: [] })] });
 }
 
 // ─── SECCIÓN 1: PORTADA ───────────────────────────────────────────────────────
@@ -639,6 +644,7 @@ export async function generateExpedienteDocx(cfdi, aiSections) {
     sections: [
       {
         headers: { default: header },
+        footers: { default: makeEmptyFooter() },
         properties: {
           page: {
             margin: { top: 1000, right: 900, bottom: 1000, left: 900 },
