@@ -148,13 +148,15 @@ export function useDocGenerator() {
 
   const generateBatch = useCallback(async (cfdis, docTypeIds, rubro, instrExtra) => {
     // Leer API key de sessionStorage justo antes del fetch — nunca en estado React
-    const apiKey = sessionStorage.getItem("cfdi_api_key");
-    if (!apiKey) {
+    const apiKey = sessionStorage.getItem("cfdi_api_key") || "";
+    const grokKey = import.meta.env.VITE_GROK_API_KEY || "";
+
+    if (!apiKey && !grokKey) {
       setError("Se requiere una API key de Anthropic. Haz clic en el ícono de llave (🔑) en el encabezado para configurarla.");
       return;
     }
 
-    if (apiKey.length > 300) {
+    if (apiKey && apiKey.length > 300) {
       setError("La API key parece inválida (demasiado larga).");
       return;
     }
@@ -193,7 +195,7 @@ export function useDocGenerator() {
           try {
             let content;
 
-            if (apiKey.trim().toLowerCase() === "demo") {
+            if (apiKey && apiKey.trim().toLowerCase() === "demo") {
               await new Promise((r) => setTimeout(r, 800));
               content = `DOCUMENTO GENERADO EN MODO DEMO
 TIPO: ${label}
@@ -229,29 +231,56 @@ Emisor: ${cfdi.emisor.rfc}              Receptor: ${cfdi.receptor.rfc}`;
               recordRequest();
 
               const prompt = buildPrompt(cfdi, label, cleanRubro, cleanInstr);
-              const response = await fetch("https://api.anthropic.com/v1/messages", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "x-api-key": apiKey,
-                  "anthropic-version": "2023-06-01",
-                  "anthropic-dangerous-direct-browser-access": "true",
-                },
-                body: JSON.stringify({
-                  model: "claude-sonnet-4-6",
-                  max_tokens: 4000,
-                  messages: [{ role: "user", content: prompt }],
-                }),
-              });
 
-              const data = await response.json();
-
-              if (data.error) {
-                throw new Error(data.error.message || "Error de la API de Anthropic");
+              if (apiKey) {
+                // Intentar Anthropic primero; si falla, usar Grok como fallback
+                try {
+                  const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      "x-api-key": apiKey,
+                      "anthropic-version": "2023-06-01",
+                      "anthropic-dangerous-direct-browser-access": "true",
+                    },
+                    body: JSON.stringify({
+                      model: "claude-sonnet-4-6",
+                      max_tokens: 4000,
+                      messages: [{ role: "user", content: prompt }],
+                    }),
+                  });
+                  const anthropicData = await anthropicRes.json();
+                  if (anthropicData.error) throw new Error(anthropicData.error.message || "Error de la API de Anthropic");
+                  content = (anthropicData.content || []).map((b) => b.text || "").join("");
+                  if (!content) throw new Error("Anthropic no devolvió contenido.");
+                  logEvent("AI_PROVIDER", "anthropic");
+                } catch (anthropicErr) {
+                  logEvent("AI_FALLBACK", `Anthropic falló (${anthropicErr.message}), usando Grok 4`);
+                  if (!grokKey) throw new Error(`Anthropic falló y no hay clave de Grok configurada. Error original: ${anthropicErr.message}`);
+                  const grokRes = await fetch("https://api.x.ai/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${grokKey}` },
+                    body: JSON.stringify({ model: "grok-4.3", max_tokens: 4000, messages: [{ role: "user", content: prompt }] }),
+                  });
+                  const grokData = await grokRes.json();
+                  if (grokData.error) throw new Error(grokData.error.message || "Error de la API de Grok");
+                  content = grokData.choices?.[0]?.message?.content || "";
+                  if (!content) throw new Error("Grok no devolvió contenido.");
+                  logEvent("AI_PROVIDER", "grok-4.3-fallback");
+                }
+              } else {
+                // Sin key de Anthropic — usar Grok directamente
+                logEvent("AI_PROVIDER", "grok-4.3-directo");
+                const grokRes = await fetch("https://api.x.ai/v1/chat/completions", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "Authorization": `Bearer ${grokKey}` },
+                  body: JSON.stringify({ model: "grok-4.3", max_tokens: 4000, messages: [{ role: "user", content: prompt }] }),
+                });
+                const grokData = await grokRes.json();
+                if (grokData.error) throw new Error(grokData.error.message || "Error de la API de Grok");
+                content = grokData.choices?.[0]?.message?.content || "";
+                if (!content) throw new Error("Grok no devolvió contenido.");
               }
-
-              content = (data.content || []).map((b) => b.text || "").join("");
-              if (!content) throw new Error("La API no devolvió contenido.");
             }
 
             logEvent("DOC_GENERADO", `${folioLabel} — ${label}`);
