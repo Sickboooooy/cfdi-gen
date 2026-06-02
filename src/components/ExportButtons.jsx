@@ -3,6 +3,7 @@ import { saveAs } from "file-saver";
 import { generateExpedienteDocx } from "../utils/generateDocx";
 import { generateExpedienteXlsx } from "../utils/generateXlsx";
 import { demoPrefix } from "../utils/demoMode";
+import { findFrontingByRfc } from "../utils/avanzza/companiesDB";
 
 /**
  * ExportButtons — Descarga Word (.docx) y Excel (.xlsx) del expediente batch.
@@ -16,6 +17,12 @@ export default function ExportButtons({ cfdis, results, rubro, disabled, selecte
   const successResults = results.filter((r) => !r.error);
   const successCount = successResults.length;
 
+  // Empresa detectada para logos/membretado (por selector o por RFC)
+  const detectedCompany =
+    selectedCompany ||
+    findFrontingByRfc(cfdis?.[0]?.receptor?.rfc) ||
+    null;
+
   // ── Word: un archivo combinado ────────────────────────────────────────────
   const handleDownloadDocx = async () => {
     if (!cfdis?.length || !successCount) return;
@@ -25,9 +32,15 @@ export default function ExportButtons({ cfdis, results, rubro, disabled, selecte
         label: `${r.folio ? `[${r.folio}] ` : ""}${r.label}`,
         content: r.content,
       }));
+      // Detectar empresa por RFC del receptor si no hay empresa seleccionada explícitamente
+      const companyId =
+        selectedCompany?.id ||
+        findFrontingByRfc(cfdis[0]?.receptor?.rfc)?.id ||
+        null;
+
       const blob = await generateExpedienteDocx(cfdis[0], aiSections, {
-        receptorCompanyId: selectedCompany?.id || null,
-        emisorCompanyId: null, // emisor es el proveedor — no tiene membretado propio en AVANZZA
+        receptorCompanyId: companyId,
+        emisorCompanyId: null,
       });
       const prefix = demoPrefix();
       const folioIds = cfdis.map((c) => c._folioControl || c.folio || "SIN-FOLIO").join("-");
@@ -63,6 +76,28 @@ export default function ExportButtons({ cfdis, results, rubro, disabled, selecte
   const isDisabled = disabled || successCount === 0;
 
   return (
+    <div>
+      {/* Indicador de empresa / membretado */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "0.5rem",
+        marginBottom: "0.75rem",
+        padding: "0.45rem 0.75rem",
+        borderRadius: "var(--radius-sm)",
+        fontSize: "0.75rem",
+        background: detectedCompany
+          ? "rgba(16,185,129,0.07)"
+          : "rgba(245,158,11,0.07)",
+        border: `1px solid ${detectedCompany ? "rgba(16,185,129,0.2)" : "rgba(245,158,11,0.2)"}`,
+        color: detectedCompany ? "var(--accent-success-light)" : "var(--accent-warning-light)",
+      }}>
+        <i className={`ti ${detectedCompany ? "ti-photo-check" : "ti-photo-off"}`} style={{ fontSize: "14px" }} aria-hidden="true" />
+        {detectedCompany
+          ? <>Membretado: <strong style={{ marginLeft: "0.2rem" }}>{detectedCompany.nombre.split(",")[0]}</strong></>
+          : "Sin membretado — configura la empresa en Paso 1 para incluir logos"}
+      </div>
+
     <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
       {/* ── Word ── */}
       <button
@@ -129,6 +164,7 @@ export default function ExportButtons({ cfdis, results, rubro, disabled, selecte
           </>
         )}
       </button>
+    </div>
     </div>
   );
 }

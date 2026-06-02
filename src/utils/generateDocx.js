@@ -16,6 +16,8 @@
  *   RECEPTOR: GOT211208L5A — Goteborg, S.A. de C.V.
  */
 
+import { findFrontingByRfc } from "./avanzza/companiesDB";
+
 import {
   Document,
   Packer,
@@ -737,7 +739,13 @@ export async function generateExpedienteDocx(cfdi, aiSections, options = {}) {
   const folioId = cfdi._folioControl || cfdi.folio || "SIN-FOLIO";
   const partes = resolvePartes(cfdi);
 
-  const { receptorCompanyId, emisorCompanyId } = options;
+  const { emisorCompanyId } = options;
+
+  // Auto-detectar empresa por RFC del receptor si no se indicó explícitamente
+  const receptorCompanyId =
+    options.receptorCompanyId ||
+    findFrontingByRfc(cfdi.receptor?.rfc)?.id ||
+    null;
 
   // Cargar imágenes en paralelo (no bloquean si fallan)
   const [membretadoData, receptorLogoData, emisorLogoData] = await Promise.all([
