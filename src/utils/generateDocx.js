@@ -43,11 +43,14 @@ import {
 
 // ─── Helpers de imagen ───────────────────────────────────────────────────────
 
-/** Intenta fetch de una URL relativa; retorna ArrayBuffer o null si falla */
+/** Intenta fetch de una URL relativa; retorna ArrayBuffer o null si no es imagen válida */
 async function fetchImage(url) {
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
+    // Rechazar respuestas HTML (SPA fallback de Vite/Vercel cuando el archivo no existe)
+    const ct = res.headers.get("content-type") || "";
+    if (ct.includes("text/html")) return null;
     return await res.arrayBuffer();
   } catch {
     return null;
@@ -57,18 +60,21 @@ async function fetchImage(url) {
 /** Extensiones posibles de logos por companyId */
 const LOGO_EXTS = ["png", "jpg", "jpeg"];
 
+/** Retorna { data: ArrayBuffer, type: string } o null */
 async function fetchLogo(companyId) {
   if (!companyId) return null;
   for (const ext of LOGO_EXTS) {
     const data = await fetchImage(`/avanzza/logos/${companyId}.${ext}`);
-    if (data) return data;
+    if (data) return { data, type: ext === "jpg" ? "jpg" : ext };
   }
   return null;
 }
 
+/** Retorna { data: ArrayBuffer, type: "png" } o null */
 async function fetchMembretado(companyId) {
   if (!companyId) return null;
-  return await fetchImage(`/avanzza/membretados/${companyId}.png`);
+  const data = await fetchImage(`/avanzza/membretados/${companyId}.png`);
+  return data ? { data, type: "png" } : null;
 }
 
 // ─── Fallback de empresa (usado solo si cfdi no trae datos) ──────────────────
@@ -177,12 +183,13 @@ function pageBreak() {
 }
 
 /** Párrafo de logotipo — imagen real si está disponible, texto si no */
-function logoParagraph(empresa, logoData) {
-  if (logoData) {
+function logoParagraph(empresa, logoObj) {
+  if (logoObj?.data) {
     return new Paragraph({
       children: [
         new ImageRun({
-          data: logoData,
+          data: logoObj.data,
+          type: logoObj.type || "png",
           transformation: { width: 180, height: 60 },
         }),
       ],
@@ -243,12 +250,13 @@ function makeHeader(folio, emisorCorto, receptorCorto, membretadoData) {
   const children = [];
 
   // Si hay membretado, inyectarlo como fondo full-page
-  if (membretadoData) {
+  if (membretadoData?.data) {
     children.push(
       new Paragraph({
         children: [
           new ImageRun({
-            data: membretadoData,
+            data: membretadoData.data,
+            type: membretadoData.type || "png",
             transformation: { width: 816, height: 1056 }, // Letter a 96 dpi
             floating: {
               behindDocument: true,
