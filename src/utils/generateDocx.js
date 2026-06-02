@@ -260,7 +260,7 @@ function makeHeader(folio, emisorCorto, receptorCorto, membretadoData) {
             transformation: { width: 816, height: 1056 }, // Letter a 96 dpi
             floating: {
               behindDocument: true,
-              zIndex: -1,
+              // zIndex debe ser unsigned int — no pasar valor negativo
               horizontalPosition: {
                 relative: HorizontalPositionRelativeFrom.PAGE,
                 offset: 0,
