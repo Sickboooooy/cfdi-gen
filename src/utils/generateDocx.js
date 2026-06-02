@@ -21,6 +21,7 @@ import {
   Packer,
   Paragraph,
   TextRun,
+  ImageRun,
   Table,
   TableRow,
   TableCell,
@@ -30,27 +31,83 @@ import {
   BorderStyle,
   WidthType,
   ShadingType,
+  HorizontalPositionRelativeFrom,
+  VerticalPositionRelativeFrom,
+  TextWrappingType,
+  TextWrappingSide,
   Header,
   Footer,
 } from "docx";
 
-// ─── Constantes de empresa ───────────────────────────────────────────────────
+// ─── Helpers de imagen ───────────────────────────────────────────────────────
 
-const EMISOR = {
+/** Intenta fetch de una URL relativa; retorna ArrayBuffer o null si falla */
+async function fetchImage(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.arrayBuffer();
+  } catch {
+    return null;
+  }
+}
+
+/** Extensiones posibles de logos por companyId */
+const LOGO_EXTS = ["png", "jpg", "jpeg"];
+
+async function fetchLogo(companyId) {
+  if (!companyId) return null;
+  for (const ext of LOGO_EXTS) {
+    const data = await fetchImage(`/avanzza/logos/${companyId}.${ext}`);
+    if (data) return data;
+  }
+  return null;
+}
+
+async function fetchMembretado(companyId) {
+  if (!companyId) return null;
+  return await fetchImage(`/avanzza/membretados/${companyId}.png`);
+}
+
+// ─── Fallback de empresa (usado solo si cfdi no trae datos) ──────────────────
+
+const EMISOR_DEFAULT = {
   nombre: "INFRAESTRUCTURA Y MATERIALES CREA, S.A. DE C.V.",
   rfc: "IMC240227MX5",
   dir: "Melquiades Campos 3152, Col. Santa Cecilia 1a Sección, C.P. 44700, Guadalajara, Jal.",
-  firmante: "Ernesto Alonso Flores Villa",
+  firmante: "Representante Legal",
   cargo: "Representante Legal",
 };
 
-const RECEPTOR = {
+const RECEPTOR_DEFAULT = {
   nombre: "GOTEBORG, S.A. DE C.V.",
   rfc: "GOT211208L5A",
   dir: "Ramón Corona 663, Col. Santa Anita, C.P. 45645, Tlajomulco de Zúñiga, Jal.",
-  firmante: "Emmanuel Amador Aguirre",
+  firmante: "Representante Legal",
   cargo: "Representante Legal",
 };
+
+/** Construye el objeto de empresa a partir del cfdi y los fallbacks */
+function resolvePartes(cfdi) {
+  const emisorNombre = (cfdi.emisor?.nombre || EMISOR_DEFAULT.nombre).toUpperCase();
+  const receptorNombre = (cfdi.receptor?.nombre || RECEPTOR_DEFAULT.nombre).toUpperCase();
+  return {
+    emisor: {
+      nombre: emisorNombre,
+      rfc: cfdi.emisor?.rfc || EMISOR_DEFAULT.rfc,
+      dir: cfdi._emisorDomicilio || EMISOR_DEFAULT.dir,
+      firmante: EMISOR_DEFAULT.firmante,
+      cargo: EMISOR_DEFAULT.cargo,
+    },
+    receptor: {
+      nombre: receptorNombre,
+      rfc: cfdi.receptor?.rfc || RECEPTOR_DEFAULT.rfc,
+      dir: cfdi._receptorDomicilio || RECEPTOR_DEFAULT.dir,
+      firmante: RECEPTOR_DEFAULT.firmante,
+      cargo: RECEPTOR_DEFAULT.cargo,
+    },
+  };
+}
 
 // ─── Helpers de formato ──────────────────────────────────────────────────────
 
@@ -117,8 +174,20 @@ function pageBreak() {
   return new Paragraph({ children: [new PageBreak()] });
 }
 
-/** Párrafo de logotipo placeholder */
-function logoParagraph(empresa) {
+/** Párrafo de logotipo — imagen real si está disponible, texto si no */
+function logoParagraph(empresa, logoData) {
+  if (logoData) {
+    return new Paragraph({
+      children: [
+        new ImageRun({
+          data: logoData,
+          transformation: { width: 180, height: 60 },
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 80, after: 80 },
+    });
+  }
   return new Paragraph({
     children: [tr(`[ LOGOTIPO ${empresa} ]`, { color: COLORS.GRAY_TEXT, italics: true })],
     alignment: AlignmentType.CENTER,
@@ -164,21 +233,59 @@ function trow(cells) {
 
 // ─── Header y Footer ─────────────────────────────────────────────────────────
 
-function makeHeader(folio) {
-  return new Header({
-    children: [
+function makeHeader(folio, emisorCorto, receptorCorto, membretadoData) {
+  const label = emisorCorto && receptorCorto
+    ? `${folio} · ${emisorCorto} → ${receptorCorto} · CFDI-GEN`
+    : `${folio} · CFDI-GEN`;
+
+  const children = [];
+
+  // Si hay membretado, inyectarlo como fondo full-page
+  if (membretadoData) {
+    children.push(
       new Paragraph({
         children: [
-          tr(`${folio} · Crea → Goteborg · CFDI-GEN`, { size: 18, color: COLORS.GRAY_TEXT }),
+          new ImageRun({
+            data: membretadoData,
+            transformation: { width: 816, height: 1056 }, // Letter a 96 dpi
+            floating: {
+              behindDocument: true,
+              zIndex: -1,
+              horizontalPosition: {
+                relative: HorizontalPositionRelativeFrom.PAGE,
+                offset: 0,
+              },
+              verticalPosition: {
+                relative: VerticalPositionRelativeFrom.PAGE,
+                offset: 0,
+              },
+              wrap: {
+                type: TextWrappingType.NONE,
+                side: TextWrappingSide.BOTH_SIDES,
+              },
+            },
+          }),
         ],
-        alignment: AlignmentType.RIGHT,
-        spacing: { after: 40 },
-        border: {
-          bottom: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
-        },
-      }),
-    ],
-  });
+        spacing: { after: 0, before: 0 },
+      })
+    );
+  }
+
+  // Header de referencia (texto pequeño arriba a la derecha)
+  children.push(
+    new Paragraph({
+      children: [
+        tr(label, { size: 16, color: membretadoData ? "999999" : COLORS.GRAY_TEXT }),
+      ],
+      alignment: AlignmentType.RIGHT,
+      spacing: { after: 40 },
+      border: membretadoData ? undefined : {
+        bottom: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
+      },
+    })
+  );
+
+  return new Header({ children });
 }
 
 function makeEmptyFooter() {
@@ -187,7 +294,9 @@ function makeEmptyFooter() {
 
 // ─── SECCIÓN 1: PORTADA ───────────────────────────────────────────────────────
 
-function buildPortada(cfdi) {
+function buildPortada(cfdi, partes, logos) {
+  const { emisor: EMISOR, receptor: RECEPTOR } = partes;
+  const { emisorLogo, receptorLogo } = logos || {};
   const isExcel = cfdi._fromExcel === true;
   const folioId = isExcel ? cfdi._folioControl : (cfdi.folio || cfdi.serie || "");
 
@@ -275,14 +384,14 @@ function buildPortada(cfdi) {
 
   return [
     p([]),
-    logoParagraph("CREA"),
+    logoParagraph(EMISOR.nombre, emisorLogo),
     p([]),
     new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
       rows,
     }),
     p([]),
-    logoParagraph("GOTEBORG"),
+    logoParagraph(RECEPTOR.nombre, receptorLogo),
     p([]),
     p([tr("Guadalajara, Jalisco, a " + new Date().toLocaleDateString("es-MX", { year: "numeric", month: "long", day: "numeric" }), { color: COLORS.GRAY_TEXT })], { align: AlignmentType.CENTER }),
   ];
@@ -290,7 +399,9 @@ function buildPortada(cfdi) {
 
 // ─── SECCIÓN 2: CARTA DE SOLICITUD ───────────────────────────────────────────
 
-function buildCartaSolicitud(cfdi) {
+function buildCartaSolicitud(cfdi, partes, logos) {
+  const { emisor: EMISOR, receptor: RECEPTOR } = partes;
+  const { emisorLogo, receptorLogo } = logos || {};
   const folioId = cfdi._folioControl || cfdi.folio || "";
   const fechaSol = cfdi._fechaSolicitud || cfdi.fecha || "";
   const receptor = cfdi.receptor?.nombre || RECEPTOR.nombre;
@@ -299,7 +410,7 @@ function buildCartaSolicitud(cfdi) {
   return [
     sectionTitle("CARTA DE SOLICITUD DE SERVICIOS"),
     p([]),
-    logoParagraph("GOTEBORG"),
+    logoParagraph(RECEPTOR.nombre, receptorLogo),
     p([]),
     p([tr(`Guadalajara, Jalisco, a ${fechaSol}`)]),
     p([]),
@@ -349,7 +460,9 @@ function buildCartaSolicitud(cfdi) {
 
 // ─── SECCIÓN 3: COTIZACIÓN ────────────────────────────────────────────────────
 
-function buildCotizacion(cfdi) {
+function buildCotizacion(cfdi, partes, logos) {
+  const { emisor: EMISOR, receptor: RECEPTOR } = partes;
+  const { emisorLogo } = logos || {};
   const folioId = cfdi._folioControl || cfdi.folio || "";
   const fechaCot = cfdi._fechaCotizacion || cfdi.fecha || "";
   const prods = cfdi._productosRaw || cfdi.conceptos || [];
@@ -417,7 +530,7 @@ function buildCotizacion(cfdi) {
   return [
     sectionTitle("COTIZACIÓN"),
     p([]),
-    logoParagraph("CREA"),
+    logoParagraph(EMISOR.nombre, emisorLogo),
     p([]),
     p([tr(`Guadalajara, Jalisco, a ${fechaCot}`)]),
     p([]),
@@ -448,14 +561,16 @@ function buildCotizacion(cfdi) {
 
 // ─── SECCIÓN 4: CARTA DE ACEPTACIÓN ──────────────────────────────────────────
 
-function buildCartaAceptacion(cfdi) {
+function buildCartaAceptacion(cfdi, partes, logos) {
+  const { emisor: EMISOR, receptor: RECEPTOR } = partes;
+  const { receptorLogo } = logos || {};
   const folioId = cfdi._folioControl || cfdi.folio || "";
   const fechaAce = cfdi._fechaAceptacion || "";
 
   return [
     sectionTitle("CARTA DE ACEPTACIÓN DE COTIZACIÓN"),
     p([]),
-    logoParagraph("GOTEBORG"),
+    logoParagraph(RECEPTOR.nombre, receptorLogo),
     p([]),
     p([tr(`Guadalajara, Jalisco, a ${fechaAce}`)]),
     p([]),
@@ -493,7 +608,9 @@ function buildCartaAceptacion(cfdi) {
 
 // ─── SECCIÓN 5: CONSTANCIA DE ENTREGA-RECEPCIÓN ────────────────────────────
 
-function buildConstanciaEntrega(cfdi) {
+function buildConstanciaEntrega(cfdi, partes, logos) {
+  const { emisor: EMISOR, receptor: RECEPTOR } = partes;
+  const { emisorLogo, receptorLogo } = logos || {};
   const folioId = cfdi._folioControl || cfdi.folio || "";
   const fechaRec = cfdi._fechaRecepcion || cfdi.fechaTimbrado || "";
   const uuid = cfdi.uuid || "[UUID-CFDI-COMPLETAR]";
@@ -542,8 +659,8 @@ function buildConstanciaEntrega(cfdi) {
           tc([p([tr("RECEPTOR", { bold: true, color: COLORS.NAVY })], { align: AlignmentType.CENTER })], { shading: COLORS.GRAY_LIGHT }),
         ]),
         trow([
-          tc([logoParagraph("CREA"), p([])]),
-          tc([logoParagraph("GOTEBORG"), p([])]),
+          tc([logoParagraph(EMISOR.nombre, emisorLogo), p([])]),
+          tc([logoParagraph(RECEPTOR.nombre, receptorLogo), p([])]),
         ]),
         trow([
           tc([
@@ -604,9 +721,12 @@ function buildConstanciaEntrega(cfdi) {
  *
  * @param {Object} cfdi  — datos del CFDI (o folio mapeado con folioToCfdi)
  * @param {string|Array} [aiSections] — texto IA o array de {label, content}
+ * @param {Object} [options] — opciones adicionales
+ * @param {string} [options.receptorCompanyId] — id del fronting (receptor) para cargar membretado y logo
+ * @param {string} [options.emisorCompanyId]   — id del emisor para cargar logo
  * @returns {Promise<Blob>} — Blob del archivo .docx listo para descargar
  */
-export async function generateExpedienteDocx(cfdi, aiSections) {
+export async function generateExpedienteDocx(cfdi, aiSections, options = {}) {
   // Backward compatibility: si es string, wrappear como array
   if (typeof aiSections === "string") {
     aiSections = aiSections ? [{ label: "DOCUMENTO GENERADO POR IA", content: aiSections }] : [];
@@ -615,8 +735,26 @@ export async function generateExpedienteDocx(cfdi, aiSections) {
   }
 
   const folioId = cfdi._folioControl || cfdi.folio || "SIN-FOLIO";
+  const partes = resolvePartes(cfdi);
 
-  const header = makeHeader(folioId);
+  const { receptorCompanyId, emisorCompanyId } = options;
+
+  // Cargar imágenes en paralelo (no bloquean si fallan)
+  const [membretadoData, receptorLogoData, emisorLogoData] = await Promise.all([
+    fetchMembretado(receptorCompanyId),
+    fetchLogo(receptorCompanyId),
+    fetchLogo(emisorCompanyId),
+  ]);
+
+  const logos = {
+    emisorLogo: emisorLogoData,
+    receptorLogo: receptorLogoData,
+  };
+
+  // Nombres cortos para el header
+  const emisorCorto = (partes.emisor.nombre.split(",")[0] || "").trim().slice(0, 20);
+  const receptorCorto = (partes.receptor.nombre.split(",")[0] || "").trim().slice(0, 20);
+  const header = makeHeader(folioId, emisorCorto, receptorCorto, membretadoData);
 
   // Construir secciones IA
   const aiChildrenParts = [];
@@ -652,23 +790,23 @@ export async function generateExpedienteDocx(cfdi, aiSections) {
         },
         children: [
           // Sección 1: Portada
-          ...buildPortada(cfdi),
+          ...buildPortada(cfdi, partes, logos),
           pageBreak(),
 
           // Sección 2: Carta de Solicitud
-          ...buildCartaSolicitud(cfdi),
+          ...buildCartaSolicitud(cfdi, partes, logos),
           pageBreak(),
 
           // Sección 3: Cotización
-          ...buildCotizacion(cfdi),
+          ...buildCotizacion(cfdi, partes, logos),
           pageBreak(),
 
           // Sección 4: Carta de Aceptación
-          ...buildCartaAceptacion(cfdi),
+          ...buildCartaAceptacion(cfdi, partes, logos),
           pageBreak(),
 
           // Sección 5: Constancia de Entrega-Recepción
-          ...buildConstanciaEntrega(cfdi),
+          ...buildConstanciaEntrega(cfdi, partes, logos),
 
           // Secciones adicionales: Documentos IA (si existen)
           ...(aiChildrenParts.length > 0 ? [pageBreak(), ...aiChildrenParts] : []),

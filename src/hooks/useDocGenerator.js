@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { DOCUMENT_TYPES_BATCH, TIPO_MAP } from "../utils/constants";
+import { DOCUMENT_TYPES_BATCH, AVANZZA_DOC_TYPES_SERVICIOS, AVANZZA_DOC_TYPES_INSUMOS, TIPO_MAP } from "../utils/constants";
 import { fmt } from "../utils/formatters";
 import { sanitizeUserInput } from "../utils/sanitize";
 import { logEvent } from "../utils/auditLog";
@@ -43,7 +43,7 @@ function recordRequest() {
 }
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
-function buildPrompt(cfdi, docLabel, rubro, instrExtra) {
+function buildPrompt(cfdi, docLabel, docTypeId, rubro, instrExtra, companyContext) {
   const isExcel = cfdi._fromExcel === true;
 
   const productos = isExcel
@@ -74,6 +74,19 @@ Fecha de timbrado: ${cfdi.fechaTimbrado || "N/D"}`;
     ? `4. La operación se identifica como "correspondiente al folio de control ${cfdi._folioControl || cfdi.folio}, pendiente de vinculación con UUID del CFDI timbrado" — NO menciones un UUID específico.`
     : `4. Integra explícitamente el UUID del CFDI como referencia: "${cfdi.uuid || "Ver CFDI adjunto"}"`;
 
+  // Contexto específico de la ficha técnica AVANZZA
+  const fichaDescripcion = companyContext?.entregables?.[docTypeId];
+  const fichaContext = fichaDescripcion
+    ? `\nCONTEXTO DE MATERIALIDAD (FICHA TÉCNICA DE LA EMPRESA):\nEl documento "${docLabel}" corresponde a la siguiente descripción según la ficha técnica oficial:\n"${fichaDescripcion}"\nEl documento DEBE reflejar exactamente esta descripción y los actores mencionados.\n`
+    : "";
+
+  const dominicilioEmisor = cfdi._emisorDomicilio
+    ? `  Domicilio: ${cfdi._emisorDomicilio}`
+    : "";
+  const domicilioReceptor = cfdi._receptorDomicilio
+    ? `  Domicilio: ${cfdi._receptorDomicilio}`
+    : "";
+
   return `Eres un especialista en documentación fiscal y jurídica mexicana con experiencia en el Código Fiscal de la Federación (CFF), SAT y derecho corporativo.
 
 Genera el documento formal completo del tipo: "${docLabel}"
@@ -94,17 +107,19 @@ EMISOR:
   RFC: ${cfdi.emisor.rfc}
   Razón Social: ${cfdi.emisor.nombre}
   Régimen Fiscal: ${cfdi.emisor.regimen || "N/D"}
+${dominicilioEmisor}
 
 RECEPTOR:
   RFC: ${cfdi.receptor.rfc}
   Razón Social / Nombre: ${cfdi.receptor.nombre}
   Uso del CFDI: ${cfdi.receptor.usoCFDI || "N/D"}
+${domicilioReceptor}
 
 PRODUCTOS / CONCEPTOS:
 ${productos}
 
 RUBRO DE LA EMPRESA EMISORA: ${rubro}
-
+${fichaContext}
 ${instrExtra ? `INSTRUCCIONES ADICIONALES DEL USUARIO:\n${instrExtra}\n` : ""}═══════════════════════════════════════════════
 
 INSTRUCCIONES DE GENERACIÓN (OBLIGATORIAS):
@@ -146,7 +161,7 @@ export function useDocGenerator() {
     return () => clearInterval(interval);
   }, [rateLimitedUntil]);
 
-  const generateBatch = useCallback(async (cfdis, docTypeIds, rubro, instrExtra) => {
+  const generateBatch = useCallback(async (cfdis, docTypeIds, rubro, instrExtra, companyContext) => {
     // Leer API key de sessionStorage justo antes del fetch — nunca en estado React
     const apiKey = sessionStorage.getItem("cfdi_api_key") || "";
     const grokKey = import.meta.env.VITE_GROK_API_KEY || "";
@@ -178,7 +193,14 @@ export function useDocGenerator() {
     setError("");
     setResults([]);
 
-    const selectedTypes = DOCUMENT_TYPES_BATCH.filter((dt) => docTypeIds.includes(dt.id));
+    // Combinar todos los tipos disponibles para filtrar correctamente
+    const ALL_TYPES = [
+      ...DOCUMENT_TYPES_BATCH,
+      ...AVANZZA_DOC_TYPES_SERVICIOS,
+      ...AVANZZA_DOC_TYPES_INSUMOS,
+    ];
+    const uniqueTypes = ALL_TYPES.filter((dt, idx, arr) => arr.findIndex((x) => x.id === dt.id) === idx);
+    const selectedTypes = uniqueTypes.filter((dt) => docTypeIds.includes(dt.id));
     const total = cfdiArray.length * selectedTypes.length;
     let count = 0;
 
@@ -230,7 +252,7 @@ Emisor: ${cfdi.emisor.rfc}              Receptor: ${cfdi.receptor.rfc}`;
 
               recordRequest();
 
-              const prompt = buildPrompt(cfdi, label, cleanRubro, cleanInstr);
+              const prompt = buildPrompt(cfdi, label, id, cleanRubro, cleanInstr, companyContext);
 
               if (apiKey) {
                 // Intentar Anthropic primero; si falla, usar Grok como fallback

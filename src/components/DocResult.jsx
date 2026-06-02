@@ -14,6 +14,7 @@ export default function DocResult({
   results,
   onReset,
   onNewDoc,
+  selectedCompany,
 }) {
   const successCount = results.filter((r) => !r.error).length;
   const errorCount = results.filter((r) => r.error).length;
@@ -253,7 +254,7 @@ export default function DocResult({
           </div>
 
           {/* Botón de exportación único */}
-          <ExportButtons cfdis={cfdis} results={results} rubro={rubro} disabled={successCount === 0} />
+          <ExportButtons cfdis={cfdis} results={results} rubro={rubro} disabled={successCount === 0} selectedCompany={selectedCompany} />
         </div>
       )}
 

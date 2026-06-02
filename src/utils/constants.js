@@ -64,6 +64,34 @@ export const DOCUMENT_TYPES_BATCH = [
   { id: "convenio_precio", label: "Convenio de Precio", icon: "💰" },
 ];
 
+// ─── Tipos de documentos AVANZZA (según Fichas Técnicas) ─────────────────────
+
+export const AVANZZA_DOC_TYPES_SERVICIOS = [
+  { id: "solicitud_servicios", label: "Solicitud de Servicios", icon: "ti-send", description: "Carta formal del cliente solicitando el servicio al proveedor." },
+  { id: "cotizacion", label: "Cotización", icon: "ti-currency-dollar", description: "Desglose de costos y narrativa descriptiva de los servicios." },
+  { id: "aceptacion_servicios", label: "Aceptación de Servicios / Orden de Compra", icon: "ti-circle-check", description: "Aceptación de la cotización con bitácora y costo final." },
+  { id: "bitacora_supervision", label: "Bitácora de Supervisión", icon: "ti-clipboard-list", description: "Tabla de desglose y seguimiento del servicio, firmada por ambas partes." },
+  { id: "recepcion_trabajo", label: "Recepción de Trabajo", icon: "ti-file-check", description: "Escrito detallado que da por finalizado el servicio y lo entregado." },
+];
+
+export const AVANZZA_DOC_TYPES_INSUMOS = [
+  { id: "solicitud_insumos", label: "Solicitud de Insumos/Materiales", icon: "ti-send", description: "Solicitud escrita del suministro de insumos o materiales." },
+  { id: "cotizacion", label: "Cotización", icon: "ti-currency-dollar", description: "Desglose detallado de materiales, costos y cantidades." },
+  { id: "aceptacion_insumos", label: "Aceptación / Orden de Compra", icon: "ti-circle-check", description: "Aceptación con bitácora del material a adquirir y costo final." },
+  { id: "ficha_entrega", label: "Ficha de Entrega", icon: "ti-package", description: "Ficha con productos entregados, domicilio, fecha y datos del cliente." },
+];
+
+/** Retorna los tipos de documentos según el tipo de empresa */
+export function getDocTypesByTipo(tipo) {
+  if (tipo === "servicios") return AVANZZA_DOC_TYPES_SERVICIOS;
+  if (tipo === "insumos" || tipo === "materiales") return AVANZZA_DOC_TYPES_INSUMOS;
+  if (tipo === "ambos") return [
+    ...AVANZZA_DOC_TYPES_SERVICIOS,
+    ...AVANZZA_DOC_TYPES_INSUMOS.filter((d) => !AVANZZA_DOC_TYPES_SERVICIOS.some((s) => s.id === d.id)),
+  ];
+  return DOCUMENT_TYPES_BATCH;
+}
+
 // 16 rubros configurados
 export const RUBROS = [
   "Construcción y obra civil",

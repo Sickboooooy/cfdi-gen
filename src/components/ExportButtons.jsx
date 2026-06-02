@@ -9,7 +9,7 @@ import { demoPrefix } from "../utils/demoMode";
  * Word: un único archivo con todos los documentos de todos los folios.
  * Excel: un archivo por folio (con los documentos de ese folio como hoja 3).
  */
-export default function ExportButtons({ cfdis, results, rubro, disabled }) {
+export default function ExportButtons({ cfdis, results, rubro, disabled, selectedCompany }) {
   const [downloadingDocx, setDownloadingDocx] = useState(false);
   const [downloadingXlsx, setDownloadingXlsx] = useState(false);
 
@@ -25,7 +25,10 @@ export default function ExportButtons({ cfdis, results, rubro, disabled }) {
         label: `${r.folio ? `[${r.folio}] ` : ""}${r.label}`,
         content: r.content,
       }));
-      const blob = await generateExpedienteDocx(cfdis[0], aiSections);
+      const blob = await generateExpedienteDocx(cfdis[0], aiSections, {
+        receptorCompanyId: selectedCompany?.id || null,
+        emisorCompanyId: null, // emisor es el proveedor — no tiene membretado propio en AVANZZA
+      });
       const prefix = demoPrefix();
       const folioIds = cfdis.map((c) => c._folioControl || c.folio || "SIN-FOLIO").join("-");
       saveAs(blob, `${prefix}${folioIds}_Expediente_Completo_${cfdis.length}Folios.docx`);

@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { FRONTINGS, getEmisorOptions } from "../utils/avanzza/companiesDB";
 
 const STORAGE_KEY = "cfdi_fiscal_config";
 
@@ -39,10 +40,12 @@ export function emptyFiscalConfig() {
     emisorNombre: "",
     emisorRegimen: "",
     emisorCP: "",
+    emisorDomicilio: "",
     receptorRfc: "",
     receptorNombre: "",
     receptorUsoCFDI: "",
     receptorCP: "",
+    receptorDomicilio: "",
   };
 }
 
@@ -69,7 +72,11 @@ const sectionHeader = {
   borderBottom: "1px solid var(--border-subtle)",
 };
 
-export default function FiscalConfig({ value, onChange }) {
+export default function FiscalConfig({ value, onChange, onCompanySelect }) {
+  const [selectedFrontingId, setSelectedFrontingId] = useState("");
+  const [selectedEmisorNombre, setSelectedEmisorNombre] = useState("");
+  const [emisorOptions, setEmisorOptions] = useState([]);
+
   useEffect(() => {
     try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(value)); } catch (_) {}
   }, [value]);
@@ -83,7 +90,58 @@ export default function FiscalConfig({ value, onChange }) {
 
   const handleClear = () => {
     onChange(emptyFiscalConfig());
+    setSelectedFrontingId("");
+    setSelectedEmisorNombre("");
+    setEmisorOptions([]);
+    if (onCompanySelect) onCompanySelect(null);
     try { sessionStorage.removeItem(STORAGE_KEY); } catch (_) {}
+  };
+
+  const handleFrontingSelect = (e) => {
+    const id = e.target.value;
+    setSelectedFrontingId(id);
+    setSelectedEmisorNombre("");
+
+    if (!id) {
+      setEmisorOptions([]);
+      if (onCompanySelect) onCompanySelect(null);
+      return;
+    }
+
+    const fronting = FRONTINGS.find((f) => f.id === id);
+    if (!fronting) return;
+
+    const options = getEmisorOptions(fronting);
+    setEmisorOptions(options);
+
+    onChange({
+      ...value,
+      receptorRfc: fronting.rfc,
+      receptorNombre: fronting.nombre,
+      receptorUsoCFDI: value.receptorUsoCFDI || "G03",
+      receptorCP: fronting.cp,
+      receptorDomicilio: fronting.domicilio,
+    });
+
+    if (onCompanySelect) onCompanySelect(fronting);
+  };
+
+  const handleEmisorSelect = (e) => {
+    const nombre = e.target.value;
+    setSelectedEmisorNombre(nombre);
+    if (!nombre) return;
+
+    const emisor = emisorOptions.find((em) => em.nombre === nombre);
+    if (!emisor) return;
+
+    onChange({
+      ...value,
+      emisorRfc: emisor.rfc || value.emisorRfc,
+      emisorNombre: emisor.nombre,
+      emisorRegimen: emisor.regimen || "601",
+      emisorCP: emisor.cp || value.emisorCP,
+      emisorDomicilio: emisor.domicilio || value.emisorDomicilio,
+    });
   };
 
   const hasData = value.emisorRfc || value.receptorRfc;
@@ -95,7 +153,16 @@ export default function FiscalConfig({ value, onChange }) {
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <i className="ti ti-building-community" style={{ fontSize: "16px", color: "var(--accent-primary-light)" }} aria-hidden="true" />
           <span style={{ fontSize: "0.875rem", fontWeight: 600 }}>Partes de la Operación</span>
-          {hasData && (
+          {selectedFrontingId && (
+            <span style={{
+              fontSize: "0.6875rem", padding: "1px 8px",
+              background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.25)",
+              borderRadius: "var(--radius-sm)", color: "var(--accent-primary-light)",
+            }}>
+              AVANZZA
+            </span>
+          )}
+          {hasData && !selectedFrontingId && (
             <span style={{
               fontSize: "0.6875rem", padding: "1px 8px",
               background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.25)",
@@ -118,6 +185,55 @@ export default function FiscalConfig({ value, onChange }) {
             Limpiar
           </button>
         )}
+      </div>
+
+      {/* ── Selectores rápidos AVANZZA ─────────────────────────────────── */}
+      <div style={{
+        marginBottom: "1rem",
+        padding: "0.75rem",
+        background: "rgba(99,102,241,0.05)",
+        border: "1px solid rgba(99,102,241,0.15)",
+        borderRadius: "var(--radius-sm)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.625rem" }}>
+          <i className="ti ti-database" style={{ fontSize: "13px", color: "var(--accent-primary-light)" }} aria-hidden="true" />
+          <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--accent-primary-light)" }}>
+            Carga rápida AVANZZA
+          </span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.625rem" }}>
+          <div>
+            <label style={labelStyle}>Empresa fronting (receptor)</label>
+            <select
+              value={selectedFrontingId}
+              onChange={handleFrontingSelect}
+              style={{ fontSize: "0.8rem" }}
+            >
+              <option value="">— Seleccionar fronting —</option>
+              {FRONTINGS.map((f) => (
+                <option key={f.id} value={f.id}>{f.nombre}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Proveedor / emisor</label>
+            <select
+              value={selectedEmisorNombre}
+              onChange={handleEmisorSelect}
+              disabled={!selectedFrontingId}
+              style={{ fontSize: "0.8rem", opacity: selectedFrontingId ? 1 : 0.5 }}
+            >
+              <option value="">— Seleccionar proveedor —</option>
+              {emisorOptions.map((em) => (
+                <option key={em.nombre} value={em.nombre}>{em.nombre}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <p style={{ fontSize: "0.6875rem", color: "var(--text-muted)", marginTop: "0.375rem" }}>
+          <i className="ti ti-info-circle" style={{ fontSize: "11px", marginRight: "3px" }} aria-hidden="true" />
+          Seleccionar empresa auto-completa RFC, domicilio y documentos requeridos.
+        </p>
       </div>
 
       {/* Grid Emisor | Receptor */}
@@ -163,6 +279,15 @@ export default function FiscalConfig({ value, onChange }) {
                 maxLength={5} style={monoInput}
               />
             </div>
+            <div>
+              <label style={labelStyle}>Domicilio</label>
+              <input
+                type="text" value={value.emisorDomicilio || ""}
+                onChange={set("emisorDomicilio")}
+                placeholder="Calle, Número, Colonia, C.P., Ciudad"
+                style={{ fontSize: "0.8125rem" }}
+              />
+            </div>
           </div>
         </div>
 
@@ -204,6 +329,15 @@ export default function FiscalConfig({ value, onChange }) {
                 onChange={set("receptorCP")}
                 placeholder="Ej: 45645"
                 maxLength={5} style={monoInput}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Domicilio</label>
+              <input
+                type="text" value={value.receptorDomicilio || ""}
+                onChange={set("receptorDomicilio")}
+                placeholder="Calle, Número, Colonia, C.P., Ciudad"
+                style={{ fontSize: "0.8125rem" }}
               />
             </div>
           </div>

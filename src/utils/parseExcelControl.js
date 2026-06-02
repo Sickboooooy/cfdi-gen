@@ -225,10 +225,12 @@ export function folioToCfdi(folio, fiscal = {}) {
     emisorNombre = "",
     emisorRegimen = "",
     emisorCP = "",
+    emisorDomicilio = "",
     receptorRfc = "",
     receptorNombre = "",
     receptorUsoCFDI = "",
     receptorCP = "",
+    receptorDomicilio = "",
   } = fiscal;
 
   return {
@@ -279,6 +281,8 @@ export function folioToCfdi(folio, fiscal = {}) {
     _fechaRecepcion: folio.f_rec,
     _totalLetra: folio.letra,
     _productosRaw: folio.prods,
+    _emisorDomicilio: emisorDomicilio,
+    _receptorDomicilio: receptorDomicilio,
 
     noCertSAT: null,
   };

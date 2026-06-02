@@ -57,6 +57,9 @@ function AppContent({ user, onLogout }) {
   // CFDIs de los folios seleccionados (Excel) o del XML parseado
   const [cfdis, setCfdis] = useState([]);
 
+  // Empresa seleccionada (fronting AVANZZA)
+  const [selectedCompany, setSelectedCompany] = useState(null);
+
   // Config del documento (batch)
   const [selectedDocTypes, setSelectedDocTypes] = useState([]);
   const [rubro, setRubro] = useState("");
@@ -103,6 +106,13 @@ function AppContent({ user, onLogout }) {
   }, [updateActivity]);
 
   // ─── Reset completo ─────────────────────────────────────────────────────
+  const handleCompanySelect = (company) => {
+    setSelectedCompany(company);
+    if (company?.rubro) setRubro(company.rubro);
+    // Reset doc types when company changes so user re-selects for the new type
+    setSelectedDocTypes([]);
+  };
+
   const handleReset = () => {
     setStep(1);
     setCfdis([]);
@@ -210,10 +220,10 @@ function AppContent({ user, onLogout }) {
   };
 
   // ─── Generación batch ────────────────────────────────────────────────────
-  const handleGenerate = async (docTypeIds) => {
+  const handleGenerate = async (docTypeIds, efectivoRubro) => {
     setSelectedDocTypes(docTypeIds);
     setStep(4);
-    await generateBatch(cfdis, docTypeIds, rubro, instrExtra);
+    await generateBatch(cfdis, docTypeIds, efectivoRubro || rubro, instrExtra, selectedCompany);
   };
 
   return (
@@ -229,7 +239,11 @@ function AppContent({ user, onLogout }) {
         {step === 1 && (
           <div className="animate-slideUp">
             {/* Datos fiscales de las partes */}
-            <FiscalConfig value={fiscalConfig} onChange={setFiscalConfig} />
+            <FiscalConfig
+              value={fiscalConfig}
+              onChange={setFiscalConfig}
+              onCompanySelect={handleCompanySelect}
+            />
 
             {/* Toggle Excel / XML */}
             <div
@@ -497,6 +511,7 @@ function AppContent({ user, onLogout }) {
               isDisabled={isGenerating || Date.now() < rateLimitedUntil}
               onBack={() => setStep(2)}
               onGenerate={handleGenerate}
+              selectedCompany={selectedCompany}
             />
           </div>
         )}
@@ -512,6 +527,7 @@ function AppContent({ user, onLogout }) {
             results={results}
             onReset={handleReset}
             onNewDoc={handleNewDoc}
+            selectedCompany={selectedCompany}
           />
         )}
       </main>
