@@ -770,65 +770,66 @@ export async function generateExpedienteDocx(cfdi, aiSections, options = {}) {
   // Nombres cortos para el header
   const emisorCorto = (partes.emisor.nombre.split(",")[0] || "").trim().slice(0, 20);
   const receptorCorto = (partes.receptor.nombre.split(",")[0] || "").trim().slice(0, 20);
-  const header = makeHeader(folioId, emisorCorto, receptorCorto, membretadoData);
 
-  // Construir secciones IA
-  const aiChildrenParts = [];
-  aiSections.forEach((section, idx) => {
-    if (idx > 0) aiChildrenParts.push(pageBreak());
-    aiChildrenParts.push(sectionTitle(section.label));
-    aiChildrenParts.push(p([tr("⚠ Solo para referencia — verificar antes de uso procesal", { bold: true, color: COLORS.RED })]));
-    aiChildrenParts.push(p([]));
-    aiChildrenParts.push(
-      ...section.content.split("\n").map((line) => p([tr(line.trim())]))
-    );
-  });
+  // Propiedades de página comunes
+  const PAGE_PROPS = { page: { margin: { top: 1000, right: 900, bottom: 1000, left: 900 } } };
+
+  // Crea una sección Word con/sin membretado de receptor
+  // Cada llamada produce un Header nuevo (el docx library no puede reusar instancias entre secciones)
+  function docSection(children, withMembretado = false) {
+    return {
+      headers: { default: makeHeader(folioId, emisorCorto, receptorCorto, withMembretado ? membretadoData : null) },
+      footers: { default: makeEmptyFooter() },
+      properties: PAGE_PROPS,
+      children,
+    };
+  }
+
+  // DocTypes del receptor (el fronting firma/escribe) → llevan membretado
+  const RECEPTOR_DOC_TYPES = new Set([
+    "solicitud_servicios", "solicitud_insumos", "solicitud_materiales",
+    "aceptacion_servicios", "aceptacion_insumos",
+    "bitacora_supervision",
+  ]);
+
+  const wordSections = [
+    // 1. Portada — sin membretado (hoja de resumen neutral)
+    docSection(buildPortada(cfdi, partes, logos), false),
+
+    // 2. Carta de Solicitud — CON membretado (receptor solicita al emisor)
+    docSection(buildCartaSolicitud(cfdi, partes, logos), true),
+
+    // 3. Cotización — sin membretado (emisor cotiza al receptor)
+    docSection(buildCotizacion(cfdi, partes, logos), false),
+
+    // 4. Carta de Aceptación — CON membretado (receptor acepta la cotización)
+    docSection(buildCartaAceptacion(cfdi, partes, logos), true),
+
+    // 5. Constancia de Entrega-Recepción — sin membretado (documento conjunto)
+    docSection(buildConstanciaEntrega(cfdi, partes, logos), false),
+
+    // Documentos IA — membretado según quién es el autor del tipo de documento
+    ...aiSections.map((section) => {
+      const useMembretado = RECEPTOR_DOC_TYPES.has(section.docTypeId);
+      return docSection([
+        sectionTitle(section.label),
+        p([tr("⚠ Solo para referencia — verificar antes de uso procesal", { bold: true, color: COLORS.RED })]),
+        p([]),
+        ...section.content.split("\n").map((line) => p([tr(line.trim())])),
+      ], useMembretado);
+    }),
+  ];
 
   const doc = new Document({
     creator: "CFDI-GEN — Itosturre Legaltech",
-    title: `Expediente ${folioId} — Crea → Goteborg`,
+    title: `Expediente ${folioId}`,
     description: "Expediente de materialidad fiscal generado por CFDI-GEN",
     styles: {
       default: {
-        document: {
-          run: { font: "Arial", size: 22 },
-        },
+        document: { run: { font: "Arial", size: 22 } },
       },
     },
-    sections: [
-      {
-        headers: { default: header },
-        footers: { default: makeEmptyFooter() },
-        properties: {
-          page: {
-            margin: { top: 1000, right: 900, bottom: 1000, left: 900 },
-          },
-        },
-        children: [
-          // Sección 1: Portada
-          ...buildPortada(cfdi, partes, logos),
-          pageBreak(),
-
-          // Sección 2: Carta de Solicitud
-          ...buildCartaSolicitud(cfdi, partes, logos),
-          pageBreak(),
-
-          // Sección 3: Cotización
-          ...buildCotizacion(cfdi, partes, logos),
-          pageBreak(),
-
-          // Sección 4: Carta de Aceptación
-          ...buildCartaAceptacion(cfdi, partes, logos),
-          pageBreak(),
-
-          // Sección 5: Constancia de Entrega-Recepción
-          ...buildConstanciaEntrega(cfdi, partes, logos),
-
-          // Secciones adicionales: Documentos IA (si existen)
-          ...(aiChildrenParts.length > 0 ? [pageBreak(), ...aiChildrenParts] : []),
-        ],
-      },
-    ],
+    sections: wordSections,
   });
 
   return Packer.toBlob(doc);

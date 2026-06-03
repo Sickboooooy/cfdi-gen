@@ -31,6 +31,7 @@ export default function ExportButtons({ cfdis, results, rubro, disabled, selecte
       const aiSections = successResults.map((r) => ({
         label: `${r.folio ? `[${r.folio}] ` : ""}${r.label}`,
         content: r.content,
+        docTypeId: r.docTypeId,
       }));
       // Detectar empresa por RFC del receptor si no hay empresa seleccionada explícitamente
       const companyId =
