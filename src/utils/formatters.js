@@ -10,7 +10,7 @@
 export function fmt(val) {
   const n = parseFloat(val);
   return isNaN(n)
-    ? val
+    ? (val == null ? "0.00" : val)
     : n.toLocaleString("es-MX", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,

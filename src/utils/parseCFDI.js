@@ -53,8 +53,8 @@ export function parseCFDI(xmlString) {
 
   // Eliminar declaraciones DOCTYPE y ENTITY para prevenir XXE
   const sanitized = xmlString
-    .replace(/<!ENTITY[^>]*>/gi, "")
-    .replace(/<!DOCTYPE[^[>]*(?:\[[\s\S]*?\])?\s*>/gi, "");
+    .replace(/<!\s*ENTITY[^>]*>/gi, "")
+    .replace(/<!\s*DOCTYPE[^[>]*(?:\[[\s\S]*?\])?\s*>/gi, "");
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(sanitized, "text/xml");
@@ -102,6 +102,11 @@ export function parseCFDI(xmlString) {
     throw new Error("No se encontró RFC del emisor en el CFDI.");
   }
 
+  const rfcReceptor = ga(receptor, "Rfc", "RFC", "rfc");
+  if (!rfcReceptor) {
+    throw new Error("No se encontró RFC del receptor en el CFDI.");
+  }
+
   return {
     // Datos del comprobante
     version: ga(comprobante, "Version", "version") || "?",
@@ -125,7 +130,7 @@ export function parseCFDI(xmlString) {
 
     // Receptor — incluye DomicilioFiscalReceptor (CFDI 4.0)
     receptor: {
-      rfc: ga(receptor, "Rfc", "RFC", "rfc"),
+      rfc: rfcReceptor,
       nombre: ga(receptor, "Nombre", "nombre"),
       usoCFDI: ga(receptor, "UsoCFDI", "usoCFDI"),
       domicilioFiscal: ga(receptor, "DomicilioFiscalReceptor", "domicilioFiscalReceptor"),

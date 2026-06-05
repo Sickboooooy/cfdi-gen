@@ -163,18 +163,13 @@ export function useDocGenerator() {
 
   const generateBatch = useCallback(async (cfdis, docTypeIds, rubro, instrExtra, companyContext) => {
     // Leer API key de sessionStorage justo antes del fetch — nunca en estado React
-    const apiKey = sessionStorage.getItem("cfdi_api_key") || "";
-    const grokKey = import.meta.env.VITE_GROK_API_KEY || "";
-
-    if (!apiKey && !grokKey) {
-      setError("Se requiere una API key de Anthropic. Haz clic en el ícono de llave (🔑) en el encabezado para configurarla.");
-      return;
-    }
-
-    if (apiKey && apiKey.length > 300) {
+    const rawKey = sessionStorage.getItem("cfdi_api_key") || "";
+    if (rawKey && rawKey.length > 300) {
       setError("La API key parece inválida (demasiado larga).");
       return;
     }
+    // Sin key configurada → demo automático para que la app funcione sin configuración
+    const apiKey = rawKey.trim() || "demo";
 
     const cfdiArray = Array.isArray(cfdis) ? cfdis : [cfdis];
     if (cfdiArray.length === 0) {
@@ -188,6 +183,20 @@ export function useDocGenerator() {
 
     const cleanInstr = sanitizeUserInput(instrExtra || "", 500);
     if (cleanInstr !== (instrExtra || "").trim()) logEvent("INPUT_SANITIZADO", "instrExtra filtrado");
+
+    // Rate limit: se verifica una sola vez por batch (no por documento)
+    const isDemo = apiKey && apiKey.trim().toLowerCase() === "demo";
+    if (!isDemo) {
+      const rl = checkRateLimit();
+      if (!rl.allowed) {
+        logEvent("RATE_LIMIT_HIT", "batch bloqueado");
+        const until = Date.now() + RATE_LIMIT.blockMs;
+        setRateLimitedUntil(until);
+        setError(`Límite de generación alcanzado. Espera ${Math.ceil(RATE_LIMIT.blockMs / 1000)} segundos antes de continuar.`);
+        return;
+      }
+      recordRequest();
+    }
 
     setIsGenerating(true);
     setError("");
@@ -208,6 +217,7 @@ export function useDocGenerator() {
       for (let folioIdx = 0; folioIdx < cfdiArray.length; folioIdx++) {
         const cfdi = cfdiArray[folioIdx];
         const folioLabel = cfdi.folio || cfdi._folioControl || `Folio ${folioIdx + 1}`;
+        const folioResults = [];
 
         for (let typeIdx = 0; typeIdx < selectedTypes.length; typeIdx++) {
           const { id, label } = selectedTypes[typeIdx];
@@ -217,7 +227,7 @@ export function useDocGenerator() {
           try {
             let content;
 
-            if (apiKey && apiKey.trim().toLowerCase() === "demo") {
+            if (isDemo) {
               await new Promise((r) => setTimeout(r, 800));
               content = `DOCUMENTO GENERADO EN MODO DEMO
 TIPO: ${label}
@@ -240,18 +250,6 @@ SEGUNDA. Este documento fue generado en modo demo y es únicamente para demostra
 ___________________________           ___________________________
 Emisor: ${cfdi.emisor.rfc}              Receptor: ${cfdi.receptor.rfc}`;
             } else {
-              // Verificar rate limit antes de cada llamada real
-              const rl = checkRateLimit();
-              if (!rl.allowed) {
-                logEvent("RATE_LIMIT_HIT", `folio ${folioLabel}, doc ${label}`);
-                const until = Date.now() + RATE_LIMIT.blockMs;
-                setRateLimitedUntil(until);
-                setIsGenerating(false);
-                return;
-              }
-
-              recordRequest();
-
               const prompt = buildPrompt(cfdi, label, id, cleanRubro, cleanInstr, companyContext);
 
               if (apiKey) {
@@ -277,41 +275,41 @@ Emisor: ${cfdi.emisor.rfc}              Receptor: ${cfdi.receptor.rfc}`;
                   if (!content) throw new Error("Anthropic no devolvió contenido.");
                   logEvent("AI_PROVIDER", "anthropic");
                 } catch (anthropicErr) {
-                  logEvent("AI_FALLBACK", `Anthropic falló (${anthropicErr.message}), usando Grok 4`);
-                  if (!grokKey) throw new Error(`Anthropic falló y no hay clave de Grok configurada. Error original: ${anthropicErr.message}`);
-                  const grokRes = await fetch("https://api.x.ai/v1/chat/completions", {
+                  logEvent("AI_FALLBACK", `Anthropic falló (${anthropicErr.message}), usando Grok`);
+                  const grokRes = await fetch("/api/grok", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${grokKey}` },
-                    body: JSON.stringify({ model: "grok-4.3", max_tokens: 4000, messages: [{ role: "user", content: prompt }] }),
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ messages: [{ role: "user", content: prompt }], max_tokens: 4000 }),
                   });
                   const grokData = await grokRes.json();
-                  if (grokData.error) throw new Error(grokData.error.message || "Error de la API de Grok");
-                  content = grokData.choices?.[0]?.message?.content || "";
+                  if (!grokRes.ok || grokData.error) throw new Error(grokData.error || `Anthropic falló y Grok no está disponible. Error original: ${anthropicErr.message}`);
+                  content = grokData.content || "";
                   if (!content) throw new Error("Grok no devolvió contenido.");
-                  logEvent("AI_PROVIDER", "grok-4.3-fallback");
+                  logEvent("AI_PROVIDER", "grok-fallback");
                 }
               } else {
-                // Sin key de Anthropic — usar Grok directamente
-                logEvent("AI_PROVIDER", "grok-4.3-directo");
-                const grokRes = await fetch("https://api.x.ai/v1/chat/completions", {
+                // Sin key de Anthropic — usar Grok server-side directamente
+                logEvent("AI_PROVIDER", "grok-directo");
+                const grokRes = await fetch("/api/grok", {
                   method: "POST",
-                  headers: { "Content-Type": "application/json", "Authorization": `Bearer ${grokKey}` },
-                  body: JSON.stringify({ model: "grok-4.3", max_tokens: 4000, messages: [{ role: "user", content: prompt }] }),
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ messages: [{ role: "user", content: prompt }], max_tokens: 4000 }),
                 });
                 const grokData = await grokRes.json();
-                if (grokData.error) throw new Error(grokData.error.message || "Error de la API de Grok");
-                content = grokData.choices?.[0]?.message?.content || "";
+                if (!grokRes.ok || grokData.error) throw new Error(grokData.error || "Grok no disponible. Configura una API key de Anthropic.");
+                content = grokData.content || "";
                 if (!content) throw new Error("Grok no devolvió contenido.");
               }
             }
 
             logEvent("DOC_GENERADO", `${folioLabel} — ${label}`);
-            setResults((prev) => [...prev, { docTypeId: id, label, content, folio: folioLabel, folioIdx }]);
+            folioResults.push({ docTypeId: id, label, content, folio: folioLabel, folioIdx });
           } catch (err) {
             const msg = err.message || "Error desconocido";
-            setResults((prev) => [...prev, { docTypeId: id, label, content: "", error: msg, folio: folioLabel, folioIdx }]);
+            folioResults.push({ docTypeId: id, label, content: "", error: msg, folio: folioLabel, folioIdx });
           }
         }
+        setResults(prev => [...prev, ...folioResults]);
       }
     } finally {
       setIsGenerating(false);

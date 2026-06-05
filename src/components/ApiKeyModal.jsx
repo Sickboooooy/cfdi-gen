@@ -78,7 +78,7 @@ export default function ApiKeyModal({ isOpen, onClose }) {
             <div>
               <h2 style={{ fontSize: "0.9375rem", fontWeight: 600 }}>API Key de Anthropic</h2>
               <p style={{ fontSize: "0.75rem", color: "var(--text-tertiary)" }}>
-                {import.meta.env.VITE_GROK_API_KEY ? "Opcional — Grok 4 activo como respaldo" : "Requerida para generar documentos"}
+                {"Opcional — respaldo disponible si no ingresas una key"}
               </p>
             </div>
           </div>
@@ -105,9 +105,7 @@ export default function ApiKeyModal({ isOpen, onClose }) {
           <i className="ti ti-alert-triangle" style={{ fontSize: "16px", flexShrink: 0, marginTop: "1px" }} aria-hidden="true" />
           <div>
             <strong>Solo para demostración.</strong> La API key se almacena en sessionStorage (se elimina al cerrar la pestaña) y solo se transmite directamente a Anthropic.
-            {import.meta.env.VITE_GROK_API_KEY && (
-              <> Si no ingresas una key, los documentos se generarán automáticamente con <strong>Grok 4</strong>.</>
-            )}
+            {" "}Si no ingresas una key, se intentará con el proveedor alternativo disponible.
           </div>
         </div>
 

@@ -39,21 +39,43 @@ import {
   TextWrappingSide,
   Header,
   Footer,
+  PageNumber,
 } from "docx";
 
 // ─── Helpers de imagen ───────────────────────────────────────────────────────
 
+/** Cache en memoria: evita re-fetches del mismo logo/membretado en un batch */
+const imageCache = new Map();
+
+/** Aborta el fetch si supera este tiempo (evita que un logo lento congele la exportación) */
+const IMAGE_FETCH_TIMEOUT_MS = 8000;
+
 /** Intenta fetch de una URL relativa; retorna ArrayBuffer o null si no es imagen válida */
 async function fetchImage(url) {
+  if (imageCache.has(url)) return imageCache.get(url);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) {
+      imageCache.set(url, null);
+      return null;
+    }
     // Rechazar respuestas HTML (SPA fallback de Vite/Vercel cuando el archivo no existe)
     const ct = res.headers.get("content-type") || "";
-    if (ct.includes("text/html")) return null;
-    return await res.arrayBuffer();
+    if (ct.includes("text/html")) {
+      imageCache.set(url, null);
+      return null;
+    }
+    const data = await res.arrayBuffer();
+    imageCache.set(url, data);
+    return data;
   } catch {
+    imageCache.set(url, null);
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -65,7 +87,7 @@ async function fetchLogo(companyId) {
   if (!companyId) return null;
   for (const ext of LOGO_EXTS) {
     const data = await fetchImage(`/avanzza/logos/${companyId}.${ext}`);
-    if (data) return { data, type: ext === "jpg" ? "jpg" : ext };
+    if (data) return { data, type: ext === "jpeg" ? "jpg" : ext };
   }
   return null;
 }
@@ -163,17 +185,13 @@ function p(runs, opts = {}) {
   });
 }
 
-/** Párrafo de título de sección */
+/** Párrafo de título de sección — fondo sólido navy con texto blanco */
 function sectionTitle(text) {
   return new Paragraph({
-    children: [
-      tr(text, { bold: true, size: 26, color: COLORS.NAVY }),
-    ],
+    children: [tr(text, { bold: true, size: 26, color: COLORS.WHITE })],
     alignment: AlignmentType.CENTER,
-    spacing: { before: 200, after: 160 },
-    border: {
-      bottom: { style: BorderStyle.SINGLE, size: 6, color: COLORS.NAVY },
-    },
+    spacing: { before: 120, after: 120 },
+    shading: { type: ShadingType.SOLID, color: COLORS.NAVY },
   });
 }
 
@@ -190,7 +208,7 @@ function logoParagraph(empresa, logoObj) {
         new ImageRun({
           data: logoObj.data,
           type: logoObj.type || "png",
-          transformation: { width: 180, height: 60 },
+          transformation: { width: 220, height: 72 },
         }),
       ],
       alignment: AlignmentType.CENTER,
@@ -299,7 +317,21 @@ function makeHeader(folio, emisorCorto, receptorCorto, membretadoData) {
 }
 
 function makeEmptyFooter() {
-  return new Footer({ children: [new Paragraph({ children: [] })] });
+  return new Footer({
+    children: [
+      new Paragraph({
+        children: [
+          new TextRun({ text: "CFDI-GEN · Itosturre Legaltech  |  Pág. ", font: "Arial", size: 16, color: COLORS.GRAY_TEXT }),
+          new TextRun({ children: [PageNumber.CURRENT], font: "Arial", size: 16, color: COLORS.GRAY_TEXT }),
+          new TextRun({ text: " / ", font: "Arial", size: 16, color: COLORS.GRAY_TEXT }),
+          new TextRun({ children: [PageNumber.TOTAL_PAGES], font: "Arial", size: 16, color: COLORS.GRAY_TEXT }),
+        ],
+        alignment: AlignmentType.CENTER,
+        border: { top: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" } },
+        spacing: { before: 80 },
+      }),
+    ],
+  });
 }
 
 // ─── SECCIÓN 1: PORTADA ───────────────────────────────────────────────────────
@@ -311,6 +343,11 @@ function buildPortada(cfdi, partes, logos) {
   const folioId = isExcel ? cfdi._folioControl : (cfdi.folio || cfdi.serie || "");
 
   const rows = [
+    // Fila de logos (emisor izq | receptor der) — sin bordes visibles
+    trow([
+      tc([logoParagraph(EMISOR.nombre, emisorLogo)], { width: 50, noBorder: true }),
+      tc([logoParagraph(RECEPTOR.nombre, receptorLogo)], { width: 50, noBorder: true }),
+    ]),
     // Header de la tabla
     trow([
       tc(
@@ -393,15 +430,10 @@ function buildPortada(cfdi, partes, logos) {
   ];
 
   return [
-    p([]),
-    logoParagraph(EMISOR.nombre, emisorLogo),
-    p([]),
     new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
       rows,
     }),
-    p([]),
-    logoParagraph(RECEPTOR.nombre, receptorLogo),
     p([]),
     p([tr("Guadalajara, Jalisco, a " + new Date().toLocaleDateString("es-MX", { year: "numeric", month: "long", day: "numeric" }), { color: COLORS.GRAY_TEXT })], { align: AlignmentType.CENTER }),
   ];
@@ -440,16 +472,34 @@ function buildCartaSolicitud(cfdi, partes, logos) {
       tr(":"),
     ]),
     p([]),
-    // Lista de productos
-    ...((cfdi._productosRaw || cfdi.conceptos || []).map((prod, i) => {
-      const desc = prod.desc || prod.descripcion || "";
-      const cant = prod.cantidad ?? "";
-      const importe = prod.importe ?? prod.importe ?? "";
-      return p([
-        tr(`${i + 1}. `, { bold: true }),
-        tr(`${desc} — Cantidad: ${cant} — Importe: ${fmtMXN(importe)}`),
-      ], { indent: { left: 360 } });
-    })),
+    // Tabla de conceptos/servicios solicitados
+    ...(() => {
+      const prods = cfdi._productosRaw || cfdi.conceptos || [];
+      if (prods.length === 0) return [];
+      return [new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [
+          trow([
+            tc([p([tr("#", { bold: true, color: COLORS.WHITE, size: 20 })])], { shading: COLORS.NAVY, width: 6 }),
+            tc([p([tr("Concepto / Descripción", { bold: true, color: COLORS.WHITE, size: 20 })])], { shading: COLORS.NAVY, width: 54 }),
+            tc([p([tr("Cant.", { bold: true, color: COLORS.WHITE, size: 20 })], { align: AlignmentType.RIGHT })], { shading: COLORS.NAVY, width: 12 }),
+            tc([p([tr("Importe", { bold: true, color: COLORS.WHITE, size: 20 })], { align: AlignmentType.RIGHT })], { shading: COLORS.NAVY, width: 28 }),
+          ]),
+          ...prods.map((prod, i) => {
+            const desc = prod.desc || prod.descripcion || "";
+            const cant = prod.cantidad ?? "";
+            const importe = prod.importe ?? prod.valorUnitario ?? "";
+            const shade = i % 2 === 0 ? undefined : COLORS.GRAY_LIGHT;
+            return trow([
+              tc([p([tr(String(i + 1))])], { shading: shade, width: 6 }),
+              tc([p([tr(desc)])], { shading: shade, width: 54 }),
+              tc([p([tr(String(cant))], { align: AlignmentType.RIGHT })], { shading: shade, width: 12 }),
+              tc([p([tr(fmtMXN(importe))], { align: AlignmentType.RIGHT })], { shading: shade, width: 28 }),
+            ]);
+          }),
+        ],
+      })];
+    })(),
     p([]),
     p([
       tr("Los servicios antes descritos deberán prestarse de conformidad con los términos y condiciones establecidos en la cotización correspondiente, en cumplimiento con lo dispuesto por los Artículos "),
@@ -479,12 +529,12 @@ function buildCotizacion(cfdi, partes, logos) {
 
   // Cabecera de tabla de productos
   const headerRow = trow([
-    tc([p([tr("#", { bold: true, color: COLORS.WHITE, size: 20 })])], { shading: COLORS.NAVY }),
-    tc([p([tr("Descripción / Concepto", { bold: true, color: COLORS.WHITE, size: 20 })])], { shading: COLORS.NAVY }),
-    tc([p([tr("Unidad", { bold: true, color: COLORS.WHITE, size: 20 })])], { shading: COLORS.NAVY }),
-    tc([p([tr("Cantidad", { bold: true, color: COLORS.WHITE, size: 20 })], { align: AlignmentType.RIGHT })], { shading: COLORS.NAVY }),
-    tc([p([tr("Valor Unitario", { bold: true, color: COLORS.WHITE, size: 20 })], { align: AlignmentType.RIGHT })], { shading: COLORS.NAVY }),
-    tc([p([tr("Importe", { bold: true, color: COLORS.WHITE, size: 20 })], { align: AlignmentType.RIGHT })], { shading: COLORS.NAVY }),
+    tc([p([tr("#", { bold: true, color: COLORS.WHITE, size: 20 })])], { shading: COLORS.NAVY, width: 5 }),
+    tc([p([tr("Descripción / Concepto", { bold: true, color: COLORS.WHITE, size: 20 })])], { shading: COLORS.NAVY, width: 43 }),
+    tc([p([tr("Unidad", { bold: true, color: COLORS.WHITE, size: 20 })])], { shading: COLORS.NAVY, width: 10 }),
+    tc([p([tr("Cantidad", { bold: true, color: COLORS.WHITE, size: 20 })], { align: AlignmentType.RIGHT })], { shading: COLORS.NAVY, width: 9 }),
+    tc([p([tr("Valor Unitario", { bold: true, color: COLORS.WHITE, size: 20 })], { align: AlignmentType.RIGHT })], { shading: COLORS.NAVY, width: 16 }),
+    tc([p([tr("Importe", { bold: true, color: COLORS.WHITE, size: 20 })], { align: AlignmentType.RIGHT })], { shading: COLORS.NAVY, width: 17 }),
   ]);
 
   const prodRows = prods.map((prod, i) => {
@@ -496,12 +546,12 @@ function buildCotizacion(cfdi, partes, logos) {
     const shade = i % 2 === 0 ? undefined : COLORS.GRAY_LIGHT;
 
     return trow([
-      tc([p([tr(String(i + 1))])], { shading: shade }),
-      tc([p([tr(desc)])], { shading: shade }),
-      tc([p([tr(unidad)])], { shading: shade }),
-      tc([p([tr(String(cant))], { align: AlignmentType.RIGHT })], { shading: shade }),
-      tc([p([tr(fmtMXN(vu))], { align: AlignmentType.RIGHT })], { shading: shade }),
-      tc([p([tr(fmtMXN(imp))], { align: AlignmentType.RIGHT })], { shading: shade }),
+      tc([p([tr(String(i + 1))])], { shading: shade, width: 5 }),
+      tc([p([tr(desc)])], { shading: shade, width: 43 }),
+      tc([p([tr(unidad)])], { shading: shade, width: 10 }),
+      tc([p([tr(String(cant))], { align: AlignmentType.RIGHT })], { shading: shade, width: 9 }),
+      tc([p([tr(fmtMXN(vu))], { align: AlignmentType.RIGHT })], { shading: shade, width: 16 }),
+      tc([p([tr(fmtMXN(imp))], { align: AlignmentType.RIGHT })], { shading: shade, width: 17 }),
     ]);
   });
 
@@ -512,28 +562,28 @@ function buildCotizacion(cfdi, partes, logos) {
 
   const totalsRows = [
     trow([
-      tc([p([])], { shading: undefined }),
-      tc([p([])]),
-      tc([p([])]),
-      tc([p([])]),
-      tc([p([tr("Subtotal:", { bold: true })], { align: AlignmentType.RIGHT })]),
-      tc([p([tr(fmtMXN(subtotal))], { align: AlignmentType.RIGHT })]),
+      tc([p([])], { width: 5 }),
+      tc([p([])], { width: 43 }),
+      tc([p([])], { width: 10 }),
+      tc([p([])], { width: 9 }),
+      tc([p([tr("Subtotal:", { bold: true })], { align: AlignmentType.RIGHT })], { width: 16 }),
+      tc([p([tr(fmtMXN(subtotal))], { align: AlignmentType.RIGHT })], { width: 17 }),
     ]),
     trow([
-      tc([p([])]),
-      tc([p([])]),
-      tc([p([])]),
-      tc([p([])]),
-      tc([p([tr("IVA (16%):", { bold: true })], { align: AlignmentType.RIGHT })]),
-      tc([p([tr(fmtMXN(iva))], { align: AlignmentType.RIGHT })]),
+      tc([p([])], { width: 5 }),
+      tc([p([])], { width: 43 }),
+      tc([p([])], { width: 10 }),
+      tc([p([])], { width: 9 }),
+      tc([p([tr("IVA (16%):", { bold: true })], { align: AlignmentType.RIGHT })], { width: 16 }),
+      tc([p([tr(fmtMXN(iva))], { align: AlignmentType.RIGHT })], { width: 17 }),
     ]),
     trow([
-      tc([p([])], { shading: COLORS.GREEN_LIGHT }),
-      tc([p([])], { shading: COLORS.GREEN_LIGHT }),
-      tc([p([])], { shading: COLORS.GREEN_LIGHT }),
-      tc([p([])], { shading: COLORS.GREEN_LIGHT }),
-      tc([p([tr("TOTAL:", { bold: true, color: COLORS.GREEN_DARK })], { align: AlignmentType.RIGHT })], { shading: COLORS.GREEN_LIGHT }),
-      tc([p([tr(fmtMXN(total), { bold: true, color: COLORS.GREEN_DARK })], { align: AlignmentType.RIGHT })], { shading: COLORS.GREEN_LIGHT }),
+      tc([p([])], { shading: COLORS.GREEN_LIGHT, width: 5 }),
+      tc([p([])], { shading: COLORS.GREEN_LIGHT, width: 43 }),
+      tc([p([])], { shading: COLORS.GREEN_LIGHT, width: 10 }),
+      tc([p([])], { shading: COLORS.GREEN_LIGHT, width: 9 }),
+      tc([p([tr("TOTAL:", { bold: true, color: COLORS.GREEN_DARK })], { align: AlignmentType.RIGHT })], { shading: COLORS.GREEN_LIGHT, width: 16 }),
+      tc([p([tr(fmtMXN(total), { bold: true, color: COLORS.GREEN_DARK })], { align: AlignmentType.RIGHT })], { shading: COLORS.GREEN_LIGHT, width: 17 }),
     ]),
   ];
 
@@ -736,23 +786,25 @@ function buildConstanciaEntrega(cfdi, partes, logos) {
  * @param {string} [options.emisorCompanyId]   — id del emisor para cargar logo
  * @returns {Promise<Blob>} — Blob del archivo .docx listo para descargar
  */
-export async function generateExpedienteDocx(cfdi, aiSections, options = {}) {
+export async function generateExpedienteDocx(cfdisInput, aiSections, options = {}) {
   // Backward compatibility: si es string, wrappear como array
   if (typeof aiSections === "string") {
-    aiSections = aiSections ? [{ label: "DOCUMENTO GENERADO POR IA", content: aiSections }] : [];
+    aiSections = aiSections ? [{ label: "DOCUMENTO GENERADO POR IA", content: aiSections, folioIdx: 0 }] : [];
   } else if (!aiSections) {
     aiSections = [];
   }
 
-  const folioId = cfdi._folioControl || cfdi.folio || "SIN-FOLIO";
-  const partes = resolvePartes(cfdi);
+  // Normalizar: aceptar objeto único o array de CFDIs
+  const cfdis = Array.isArray(cfdisInput) ? cfdisInput : [cfdisInput];
+  if (cfdis.length === 0) return null;
 
+  const cfdi0 = cfdis[0]; // para logos/membretado (empresa compartida en todo el batch)
   const { emisorCompanyId } = options;
 
   // Auto-detectar empresa por RFC del receptor si no se indicó explícitamente
   const receptorCompanyId =
     options.receptorCompanyId ||
-    findFrontingByRfc(cfdi.receptor?.rfc)?.id ||
+    findFrontingByRfc(cfdi0.receptor?.rfc)?.id ||
     null;
 
   // Cargar imágenes en paralelo (no bloquean si fallan)
@@ -767,23 +819,13 @@ export async function generateExpedienteDocx(cfdi, aiSections, options = {}) {
     receptorLogo: receptorLogoData,
   };
 
-  // Nombres cortos para el header
-  const emisorCorto = (partes.emisor.nombre.split(",")[0] || "").trim().slice(0, 20);
-  const receptorCorto = (partes.receptor.nombre.split(",")[0] || "").trim().slice(0, 20);
+  // Nombres cortos para el header (empresa compartida por todo el batch)
+  const partes0 = resolvePartes(cfdi0);
+  const emisorCorto = (partes0.emisor.nombre.split(",")[0] || "").trim().slice(0, 20);
+  const receptorCorto = (partes0.receptor.nombre.split(",")[0] || "").trim().slice(0, 20);
 
   // Propiedades de página comunes
   const PAGE_PROPS = { page: { margin: { top: 1000, right: 900, bottom: 1000, left: 900 } } };
-
-  // Crea una sección Word con/sin membretado de receptor
-  // Cada llamada produce un Header nuevo (el docx library no puede reusar instancias entre secciones)
-  function docSection(children, withMembretado = false) {
-    return {
-      headers: { default: makeHeader(folioId, emisorCorto, receptorCorto, withMembretado ? membretadoData : null) },
-      footers: { default: makeEmptyFooter() },
-      properties: PAGE_PROPS,
-      children,
-    };
-  }
 
   // DocTypes del receptor (el fronting firma/escribe) → llevan membretado
   const RECEPTOR_DOC_TYPES = new Set([
@@ -792,37 +834,53 @@ export async function generateExpedienteDocx(cfdi, aiSections, options = {}) {
     "bitacora_supervision",
   ]);
 
-  const wordSections = [
-    // 1. Portada — sin membretado (hoja de resumen neutral)
-    docSection(buildPortada(cfdi, partes, logos), false),
+  const wordSections = [];
 
-    // 2. Carta de Solicitud — CON membretado (receptor solicita al emisor)
-    docSection(buildCartaSolicitud(cfdi, partes, logos), true),
+  for (const [idx, cfdi] of cfdis.entries()) {
+    const partes = resolvePartes(cfdi);
+    const folioId = cfdi._folioControl || cfdi.folio || `SIN-FOLIO-${idx + 1}`;
+    const cfdiAISections = aiSections.filter((s) => (s.folioIdx ?? 0) === idx);
 
-    // 3. Cotización — sin membretado (emisor cotiza al receptor)
-    docSection(buildCotizacion(cfdi, partes, logos), false),
+    // Crea una sección Word con/sin membretado para este folio
+    // Cada llamada produce un Header nuevo (el docx library no puede reusar instancias entre secciones)
+    const docSection = (children, withMembretado = false) => ({
+      headers: { default: makeHeader(folioId, emisorCorto, receptorCorto, withMembretado ? membretadoData : null) },
+      footers: { default: makeEmptyFooter() },
+      properties: PAGE_PROPS,
+      children,
+    });
 
-    // 4. Carta de Aceptación — CON membretado (receptor acepta la cotización)
-    docSection(buildCartaAceptacion(cfdi, partes, logos), true),
+    wordSections.push(
+      // 1. Portada — sin membretado (hoja de resumen neutral)
+      docSection(buildPortada(cfdi, partes, logos), false),
+      // 2. Carta de Solicitud — CON membretado (receptor solicita al emisor)
+      docSection(buildCartaSolicitud(cfdi, partes, logos), true),
+      // 3. Cotización — sin membretado (emisor cotiza al receptor)
+      docSection(buildCotizacion(cfdi, partes, logos), false),
+      // 4. Carta de Aceptación — CON membretado (receptor acepta la cotización)
+      docSection(buildCartaAceptacion(cfdi, partes, logos), true),
+      // 5. Constancia de Entrega-Recepción — sin membretado (documento conjunto)
+      docSection(buildConstanciaEntrega(cfdi, partes, logos), false),
+      // Documentos IA — membretado según quién es el autor del tipo de documento
+      ...cfdiAISections.map((section) => {
+        const useMembretado = RECEPTOR_DOC_TYPES.has(section.docTypeId);
+        return docSection([
+          sectionTitle(section.label),
+          p([tr("⚠ Solo para referencia — verificar antes de uso procesal", { bold: true, color: COLORS.RED })]),
+          p([]),
+          ...section.content.split("\n").map((line) => p([tr(line.trim())])),
+        ], useMembretado);
+      }),
+    );
+  }
 
-    // 5. Constancia de Entrega-Recepción — sin membretado (documento conjunto)
-    docSection(buildConstanciaEntrega(cfdi, partes, logos), false),
-
-    // Documentos IA — membretado según quién es el autor del tipo de documento
-    ...aiSections.map((section) => {
-      const useMembretado = RECEPTOR_DOC_TYPES.has(section.docTypeId);
-      return docSection([
-        sectionTitle(section.label),
-        p([tr("⚠ Solo para referencia — verificar antes de uso procesal", { bold: true, color: COLORS.RED })]),
-        p([]),
-        ...section.content.split("\n").map((line) => p([tr(line.trim())])),
-      ], useMembretado);
-    }),
-  ];
+  const folioLabel = cfdis.length === 1
+    ? (cfdis[0]._folioControl || cfdis[0].folio || "SIN-FOLIO")
+    : `BATCH-${cfdis.length}F`;
 
   const doc = new Document({
     creator: "CFDI-GEN — Itosturre Legaltech",
-    title: `Expediente ${folioId}`,
+    title: `Expediente ${folioLabel}`,
     description: "Expediente de materialidad fiscal generado por CFDI-GEN",
     styles: {
       default: {

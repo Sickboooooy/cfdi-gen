@@ -3,7 +3,7 @@ import { saveAs } from "file-saver";
 import { generateExpedienteDocx } from "../utils/generateDocx";
 import { generateExpedienteXlsx } from "../utils/generateXlsx";
 import { demoPrefix } from "../utils/demoMode";
-import { findFrontingByRfc } from "../utils/avanzza/companiesDB";
+import { findFrontingByRfc, FRONTINGS } from "../utils/avanzza/companiesDB";
 
 /**
  * ExportButtons — Descarga Word (.docx) y Excel (.xlsx) del expediente batch.
@@ -13,15 +13,19 @@ import { findFrontingByRfc } from "../utils/avanzza/companiesDB";
 export default function ExportButtons({ cfdis, results, rubro, disabled, selectedCompany }) {
   const [downloadingDocx, setDownloadingDocx] = useState(false);
   const [downloadingXlsx, setDownloadingXlsx] = useState(false);
+  const [manualCompanyId, setManualCompanyId] = useState("");
 
   const successResults = results.filter((r) => !r.error);
   const successCount = successResults.length;
 
-  // Empresa detectada para logos/membretado (por selector o por RFC)
-  const detectedCompany =
+  // Empresa detectada: prop > RFC auto-detect > selector manual en este paso
+  const autoCompany =
     selectedCompany ||
     findFrontingByRfc(cfdis?.[0]?.receptor?.rfc) ||
     null;
+  const detectedCompany =
+    autoCompany ||
+    (manualCompanyId ? FRONTINGS.find((f) => f.id === manualCompanyId) : null);
 
   // ── Word: un archivo combinado ────────────────────────────────────────────
   const handleDownloadDocx = async () => {
@@ -32,14 +36,11 @@ export default function ExportButtons({ cfdis, results, rubro, disabled, selecte
         label: `${r.folio ? `[${r.folio}] ` : ""}${r.label}`,
         content: r.content,
         docTypeId: r.docTypeId,
+        folioIdx: r.folioIdx ?? 0,
       }));
-      // Detectar empresa por RFC del receptor si no hay empresa seleccionada explícitamente
-      const companyId =
-        selectedCompany?.id ||
-        findFrontingByRfc(cfdis[0]?.receptor?.rfc)?.id ||
-        null;
+      const companyId = detectedCompany?.id || null;
 
-      const blob = await generateExpedienteDocx(cfdis[0], aiSections, {
+      const blob = await generateExpedienteDocx(cfdis, aiSections, {
         receptorCompanyId: companyId,
         emisorCompanyId: null,
       });
@@ -78,26 +79,42 @@ export default function ExportButtons({ cfdis, results, rubro, disabled, selecte
 
   return (
     <div>
-      {/* Indicador de empresa / membretado */}
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "0.5rem",
-        marginBottom: "0.75rem",
-        padding: "0.45rem 0.75rem",
-        borderRadius: "var(--radius-sm)",
-        fontSize: "0.75rem",
-        background: detectedCompany
-          ? "rgba(16,185,129,0.07)"
-          : "rgba(245,158,11,0.07)",
-        border: `1px solid ${detectedCompany ? "rgba(16,185,129,0.2)" : "rgba(245,158,11,0.2)"}`,
-        color: detectedCompany ? "var(--accent-success-light)" : "var(--accent-warning-light)",
-      }}>
-        <i className={`ti ${detectedCompany ? "ti-photo-check" : "ti-photo-off"}`} style={{ fontSize: "14px" }} aria-hidden="true" />
-        {detectedCompany
-          ? <>Membretado: <strong style={{ marginLeft: "0.2rem" }}>{detectedCompany.nombre.split(",")[0]}</strong></>
-          : "Sin membretado — configura la empresa en Paso 1 para incluir logos"}
-      </div>
+      {/* Indicador de empresa / membretado — o selector rápido si no se detectó */}
+      {detectedCompany ? (
+        <div style={{
+          display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem",
+          padding: "0.45rem 0.75rem", borderRadius: "var(--radius-sm)", fontSize: "0.75rem",
+          background: "rgba(16,185,129,0.07)", border: "1px solid rgba(16,185,129,0.2)",
+          color: "var(--accent-success-light)",
+        }}>
+          <i className="ti ti-photo-check" style={{ fontSize: "14px" }} aria-hidden="true" />
+          Membretado: <strong style={{ marginLeft: "0.2rem" }}>{detectedCompany.nombre.split(",")[0]}</strong>
+        </div>
+      ) : (
+        <div style={{
+          display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem",
+          padding: "0.45rem 0.75rem", borderRadius: "var(--radius-sm)", fontSize: "0.75rem",
+          background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.2)",
+          color: "var(--accent-warning-light)", flexWrap: "wrap",
+        }}>
+          <i className="ti ti-photo-off" style={{ fontSize: "14px", flexShrink: 0 }} aria-hidden="true" />
+          <span style={{ flexShrink: 0 }}>Empresa fronting:</span>
+          <select
+            value={manualCompanyId}
+            onChange={(e) => setManualCompanyId(e.target.value)}
+            style={{
+              flex: 1, minWidth: "160px", fontSize: "0.75rem", padding: "0.15rem 0.4rem",
+              borderRadius: "4px", border: "1px solid rgba(245,158,11,0.4)",
+              background: "var(--bg-elevated)", color: "var(--text-primary)", cursor: "pointer",
+            }}
+          >
+            <option value="">— Seleccionar para membretado —</option>
+            {FRONTINGS.map((f) => (
+              <option key={f.id} value={f.id}>{f.nombre.split(",")[0]}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
     <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
       {/* ── Word ── */}

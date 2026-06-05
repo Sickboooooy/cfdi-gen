@@ -76,7 +76,7 @@ export const AVANZZA_DOC_TYPES_SERVICIOS = [
 
 export const AVANZZA_DOC_TYPES_INSUMOS = [
   { id: "solicitud_insumos", label: "Solicitud de Insumos/Materiales", icon: "ti-send", description: "Solicitud escrita del suministro de insumos o materiales." },
-  { id: "cotizacion", label: "Cotización", icon: "ti-currency-dollar", description: "Desglose detallado de materiales, costos y cantidades." },
+  { id: "cotizacion_insumos", label: "Cotización de Materiales", icon: "ti-currency-dollar", description: "Desglose detallado de materiales, costos y cantidades." },
   { id: "aceptacion_insumos", label: "Aceptación / Orden de Compra", icon: "ti-circle-check", description: "Aceptación con bitácora del material a adquirir y costo final." },
   { id: "ficha_entrega", label: "Ficha de Entrega", icon: "ti-package", description: "Ficha con productos entregados, domicilio, fecha y datos del cliente." },
 ];
