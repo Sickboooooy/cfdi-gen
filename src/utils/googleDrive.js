@@ -23,12 +23,11 @@
  *   8. Reiniciar el servidor de desarrollo
  */
 
-import { driveFolderRoot } from "./demoMode";
-
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 const SCOPES = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_LOG_KEY = "cfdi_drive_log";
 const DRIVE_FOLDER_CACHE_KEY = "cfdi_drive_root_folder";
+const DRIVE_ROOT_NAME = "Itosturre · CFDI-DOC GEN";
 
 // ─── Estado interno ───────────────────────────────────────────────────────────
 
@@ -299,6 +298,95 @@ export async function uploadToDrive(fileName, mimeType, content, folderId) {
   }
 
   return resp.json();
+}
+
+// ─── Estructura de carpetas profunda: Root / Año / RFC — Nombre ──────────────
+
+async function getOrCreateDeepFolder(emisorRfc, emisorNombre) {
+  const year = new Date().getFullYear().toString();
+  const nombreCorto = (emisorNombre.split(",")[0] || emisorNombre).trim().slice(0, 40);
+  const rfcNombreFolder = `${emisorRfc} — ${nombreCorto}`;
+  const cacheKey = `${DRIVE_FOLDER_CACHE_KEY}_v2_${year}_${emisorRfc}`;
+  const folderPath = `${DRIVE_ROOT_NAME} / ${year} / ${rfcNombreFolder}`;
+
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) return { folderId: cached, folderPath };
+
+  let rootId = await findDriveFolder(DRIVE_ROOT_NAME);
+  if (!rootId) rootId = await createDriveFolder(DRIVE_ROOT_NAME);
+
+  let yearId = await findDriveFolder(year, rootId);
+  if (!yearId) yearId = await createDriveFolder(year, rootId);
+
+  let rfcId = await findDriveFolder(rfcNombreFolder, yearId);
+  if (!rfcId) rfcId = await createDriveFolder(rfcNombreFolder, yearId);
+
+  localStorage.setItem(cacheKey, rfcId);
+  return { folderId: rfcId, folderPath };
+}
+
+/**
+ * Archiva todos los documentos IA generados como .txt en Drive.
+ * Estructura: Itosturre · CFDI-DOC GEN / [Año] / [RFC] — [Nombre] / [tipo]_[rfc]_[fecha]_[uuid8].txt
+ *
+ * @param {Object} params
+ * @param {Array}  params.results  — resultados de useDocGenerator
+ * @param {Array}  params.cfdis    — array de CFDIs del batch
+ * @param {Function} params.onProgress — callback(mensaje: string)
+ * @returns {Promise<{uploaded, folderPath, folderLink, error}>}
+ */
+export async function archiveDocumentsToDrive({ results, cfdis, onProgress }) {
+  if (!isDriveConfigured()) return { error: "not_configured" };
+
+  if (!gapiReady) {
+    onProgress?.("Inicializando Drive...");
+    const ok = await initGoogleDrive();
+    if (!ok) return { error: "init_failed" };
+  }
+
+  onProgress?.("Autenticando con Google...");
+  const token = await signInGoogle();
+  if (!token) return { error: "auth_cancelled" };
+  currentToken._created = Date.now();
+
+  const toUpload = results.filter((r) => !r.error && r.content);
+  if (toUpload.length === 0) return { error: "no_content" };
+
+  const uploaded = [];
+  let folderPath = "";
+  let folderId = "";
+
+  for (let i = 0; i < toUpload.length; i++) {
+    const r = toUpload[i];
+    const cfdi = cfdis[r.folioIdx ?? 0] || cfdis[0];
+    const emisorRfc = cfdi.emisor?.rfc || "SIN-RFC";
+    const emisorNombre = cfdi.emisor?.nombre || "";
+    const fecha = (cfdi._fechaSolicitud || cfdi.fecha || "").slice(0, 10);
+    const uuid = cfdi.uuid || cfdi._folioControl || "";
+    const uuidCorto = uuid.replace(/-/g, "").slice(0, 8) || "SINFOL";
+
+    onProgress?.(`Archivando ${i + 1} / ${toUpload.length}: ${r.label}...`);
+
+    const deep = await getOrCreateDeepFolder(emisorRfc, emisorNombre);
+    folderPath = deep.folderPath;
+    folderId = deep.folderId;
+
+    const tipoSlug = r.label.replace(/[^a-zA-Z0-9áéíóúüñÁÉÍÓÚÜÑ\s]/g, "").trim().replace(/\s+/g, "_").slice(0, 40);
+    const fileName = `${tipoSlug}_${emisorRfc}_${fecha}_${uuidCorto}.txt`;
+
+    const blob = new Blob([r.content], { type: "text/plain; charset=utf-8" });
+    const driveResult = await uploadToDrive(fileName, "text/plain", blob, folderId);
+
+    addToDriveLog({ fileName, folio: r.folio || "", mimeType: "text/plain", driveId: driveResult.id, webViewLink: driveResult.webViewLink });
+    uploaded.push({ fileName, webViewLink: driveResult.webViewLink });
+  }
+
+  return {
+    uploaded,
+    folderPath,
+    folderLink: `https://drive.google.com/drive/folders/${folderId}`,
+    error: null,
+  };
 }
 
 // ─── Flujo completo de respaldo ────────────────────────────────────────────────

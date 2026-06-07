@@ -4,6 +4,7 @@ import { generateExpedienteDocx } from "../utils/generateDocx";
 import { generateExpedienteXlsx } from "../utils/generateXlsx";
 import { demoPrefix } from "../utils/demoMode";
 import { findFrontingByRfc, FRONTINGS } from "../utils/avanzza/companiesDB";
+import { isDriveConfigured, archiveDocumentsToDrive } from "../utils/googleDrive";
 
 /**
  * ExportButtons — Descarga Word (.docx) y Excel (.xlsx) del expediente batch.
@@ -14,6 +15,7 @@ export default function ExportButtons({ cfdis, results, rubro, disabled, selecte
   const [downloadingDocx, setDownloadingDocx] = useState(false);
   const [downloadingXlsx, setDownloadingXlsx] = useState(false);
   const [manualCompanyId, setManualCompanyId] = useState("");
+  const [drive, setDrive] = useState({ phase: "idle", progress: "", uploaded: [], folderPath: "", folderLink: "", error: "" });
 
   const successResults = results.filter((r) => !r.error);
   const successCount = successResults.length;
@@ -76,6 +78,32 @@ export default function ExportButtons({ cfdis, results, rubro, disabled, selecte
   };
 
   const isDisabled = disabled || successCount === 0;
+
+  const handleArchiveDrive = async () => {
+    if (!isDriveConfigured()) {
+      setDrive({ phase: "not_configured", progress: "", uploaded: [], folderPath: "", folderLink: "", error: "" });
+      return;
+    }
+    setDrive({ phase: "loading", progress: "Iniciando...", uploaded: [], folderPath: "", folderLink: "", error: "" });
+    try {
+      const res = await archiveDocumentsToDrive({
+        results: successResults,
+        cfdis,
+        onProgress: (msg) => setDrive((prev) => ({ ...prev, progress: msg })),
+      });
+      if (res.error === "auth_cancelled") {
+        setDrive({ phase: "idle", progress: "", uploaded: [], folderPath: "", folderLink: "", error: "" });
+        return;
+      }
+      if (res.error) {
+        setDrive({ phase: "error", progress: "", uploaded: [], folderPath: "", folderLink: "", error: res.error });
+        return;
+      }
+      setDrive({ phase: "success", progress: "", uploaded: res.uploaded, folderPath: res.folderPath, folderLink: res.folderLink, error: "" });
+    } catch (err) {
+      setDrive({ phase: "error", progress: "", uploaded: [], folderPath: "", folderLink: "", error: err.message });
+    }
+  };
 
   return (
     <div>
@@ -183,6 +211,115 @@ export default function ExportButtons({ cfdis, results, rubro, disabled, selecte
         )}
       </button>
     </div>
+
+    {/* ── Archivar en Google Drive ── */}
+    {successCount > 0 && (
+      <div style={{ marginTop: "1rem" }}>
+
+        {/* Idle — botón de acción */}
+        {drive.phase === "idle" && (
+          <button
+            onClick={handleArchiveDrive}
+            style={{
+              width: "100%", padding: "0.6rem 1rem", fontSize: "0.875rem", fontWeight: 500,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem",
+              background: "rgba(66,133,244,0.08)", border: "1px solid rgba(66,133,244,0.25)",
+              borderRadius: "var(--radius-md)", color: "#7baaf7", cursor: "pointer",
+              transition: "all var(--transition-fast)",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = "rgba(66,133,244,0.14)"}
+            onMouseLeave={(e) => e.currentTarget.style.background = "rgba(66,133,244,0.08)"}
+          >
+            <i className="ti ti-brand-google-drive" style={{ fontSize: "16px" }} aria-hidden="true" />
+            Archivar documentos en Google Drive
+          </button>
+        )}
+
+        {/* Not configured — instrucciones de conexión */}
+        {drive.phase === "not_configured" && (
+          <div style={{
+            padding: "1rem 1.1rem", borderRadius: "var(--radius-md)", fontSize: "0.8125rem", lineHeight: 1.6,
+            background: "rgba(66,133,244,0.07)", border: "1px solid rgba(66,133,244,0.22)", color: "var(--text-secondary)",
+          }}>
+            <div style={{ fontWeight: 600, color: "#7baaf7", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+              <i className="ti ti-folder-open" style={{ fontSize: "15px" }} aria-hidden="true" />
+              Conectar Google Drive
+            </div>
+            Para guardar documentos automáticamente necesito acceso a tu Google Drive.<br />
+            Agrega <code style={{ background: "rgba(66,133,244,0.12)", padding: "1px 5px", borderRadius: 3 }}>VITE_GOOGLE_CLIENT_ID</code> en tu <code style={{ background: "rgba(66,133,244,0.12)", padding: "1px 5px", borderRadius: 3 }}>.env</code> y reinicia el servidor.
+            <div style={{ marginTop: "0.625rem" }}>
+              <button onClick={() => setDrive((p) => ({ ...p, phase: "idle" }))}
+                style={{ fontSize: "0.75rem", color: "#7baaf7", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Loading — progreso */}
+        {drive.phase === "loading" && (
+          <div style={{
+            padding: "0.7rem 1rem", borderRadius: "var(--radius-md)", fontSize: "0.8125rem",
+            background: "rgba(66,133,244,0.07)", border: "1px solid rgba(66,133,244,0.22)",
+            color: "#7baaf7", display: "flex", alignItems: "center", gap: "0.6rem",
+          }}>
+            <i className="ti ti-loader-2" style={{ fontSize: "15px", animation: "spin 0.8s linear infinite", flexShrink: 0 }} aria-hidden="true" />
+            {drive.progress}
+          </div>
+        )}
+
+        {/* Success — confirmación con ruta y enlace */}
+        {drive.phase === "success" && (
+          <div style={{
+            padding: "0.875rem 1rem", borderRadius: "var(--radius-md)", fontSize: "0.8125rem", lineHeight: 1.7,
+            background: "rgba(16,185,129,0.07)", border: "1px solid rgba(16,185,129,0.25)", color: "var(--text-secondary)",
+          }}>
+            <div style={{ fontWeight: 600, color: "var(--accent-success-light)", marginBottom: "0.35rem" }}>
+              ✅ {drive.uploaded.length} documento{drive.uploaded.length !== 1 ? "s" : ""} archivado{drive.uploaded.length !== 1 ? "s" : ""} correctamente
+            </div>
+            <div>📁 <strong>Carpeta:</strong> {drive.folderPath}</div>
+            {drive.uploaded.slice(0, 3).map((u, i) => (
+              <div key={i}>📄 {u.fileName}</div>
+            ))}
+            {drive.uploaded.length > 3 && <div style={{ color: "var(--text-muted)" }}>…y {drive.uploaded.length - 3} más</div>}
+            <div style={{ marginTop: "0.4rem" }}>
+              <a href={drive.folderLink} target="_blank" rel="noopener noreferrer"
+                style={{ color: "#7baaf7", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
+                🔗 Ver carpeta en Drive →
+              </a>
+            </div>
+            <button onClick={() => setDrive((p) => ({ ...p, phase: "idle" }))}
+              style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+              Archivar de nuevo
+            </button>
+          </div>
+        )}
+
+        {/* Error — mensaje amigable sin stack traces */}
+        {drive.phase === "error" && (
+          <div style={{
+            padding: "0.875rem 1rem", borderRadius: "var(--radius-md)", fontSize: "0.8125rem", lineHeight: 1.6,
+            background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.25)", color: "var(--text-secondary)",
+          }}>
+            <div style={{ fontWeight: 600, color: "var(--accent-warning-light)", marginBottom: "0.35rem" }}>
+              ⚠️ No pude guardar en Drive en este momento.
+            </div>
+            Tu documento está listo arriba — puedes descargarlo manualmente.
+            <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.75rem" }}>
+              <button onClick={handleArchiveDrive}
+                style={{ fontSize: "0.8rem", color: "#7baaf7", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+                Intentar de nuevo
+              </button>
+              <button onClick={() => setDrive((p) => ({ ...p, phase: "idle" }))}
+                style={{ fontSize: "0.8rem", color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+      </div>
+    )}
     </div>
   );
 }
