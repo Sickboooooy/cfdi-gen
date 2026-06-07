@@ -353,8 +353,10 @@ export async function archiveDocumentsToDrive({ results, cfdis, onProgress }) {
   if (toUpload.length === 0) return { error: "no_content" };
 
   const uploaded = [];
-  let folderPath = "";
-  let folderId = "";
+  const uploadErrors = [];
+  // Anclar ruta y link al primer emisor del batch (referencia consistente)
+  let rootFolderPath = "";
+  let rootFolderId = "";
 
   for (let i = 0; i < toUpload.length; i++) {
     const r = toUpload[i];
@@ -367,25 +369,34 @@ export async function archiveDocumentsToDrive({ results, cfdis, onProgress }) {
 
     onProgress?.(`Archivando ${i + 1} / ${toUpload.length}: ${r.label}...`);
 
-    const deep = await getOrCreateDeepFolder(emisorRfc, emisorNombre);
-    folderPath = deep.folderPath;
-    folderId = deep.folderId;
+    try {
+      const deep = await getOrCreateDeepFolder(emisorRfc, emisorNombre);
+      // Anclar al primer emisor procesado exitosamente
+      if (!rootFolderId) { rootFolderPath = deep.folderPath; rootFolderId = deep.folderId; }
 
-    const tipoSlug = r.label.replace(/[^a-zA-Z0-9áéíóúüñÁÉÍÓÚÜÑ\s]/g, "").trim().replace(/\s+/g, "_").slice(0, 40);
-    const fileName = `${tipoSlug}_${emisorRfc}_${fecha}_${uuidCorto}.txt`;
+      const tipoSlug = r.label.replace(/[^a-zA-Z0-9áéíóúüñÁÉÍÓÚÜÑ\s]/g, "").trim().replace(/\s+/g, "_").slice(0, 40);
+      const fileName = `${tipoSlug}_${emisorRfc}_${fecha}_${uuidCorto}.txt`;
 
-    const blob = new Blob([r.content], { type: "text/plain; charset=utf-8" });
-    const driveResult = await uploadToDrive(fileName, "text/plain", blob, folderId);
+      const blob = new Blob([r.content], { type: "text/plain; charset=utf-8" });
+      const driveResult = await uploadToDrive(fileName, "text/plain", blob, deep.folderId);
 
-    addToDriveLog({ fileName, folio: r.folio || "", mimeType: "text/plain", driveId: driveResult.id, webViewLink: driveResult.webViewLink });
-    uploaded.push({ fileName, webViewLink: driveResult.webViewLink });
+      addToDriveLog({ fileName, folio: r.folio || "", mimeType: "text/plain", driveId: driveResult.id, webViewLink: driveResult.webViewLink });
+      uploaded.push({ fileName, webViewLink: driveResult.webViewLink });
+    } catch (uploadErr) {
+      uploadErrors.push(`${r.label}: ${uploadErr.message}`);
+    }
+  }
+
+  if (uploaded.length === 0) {
+    throw new Error(uploadErrors[0] || "No se pudo subir ningún documento.");
   }
 
   return {
     uploaded,
-    folderPath,
-    folderLink: `https://drive.google.com/drive/folders/${folderId}`,
+    folderPath: rootFolderPath,
+    folderLink: `https://drive.google.com/drive/folders/${rootFolderId}`,
     error: null,
+    // Si hubo fallos parciales, uploaded.length < toUpload.length — la UI lo muestra en el conteo
   };
 }
 
