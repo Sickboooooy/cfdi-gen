@@ -92,6 +92,10 @@ export function getDocTypesByTipo(tipo) {
   return DOCUMENT_TYPES_BATCH;
 }
 
+// Modelos de IA — fuente única de verdad (sincronizada con api/grok.js y vite.config.js)
+export const AI_MODEL = "claude-sonnet-4-20250514";
+export const GROK_MODEL = "grok-4";
+
 // 16 rubros configurados
 export const RUBROS = [
   "Construcción y obra civil",

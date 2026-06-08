@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { DOCUMENT_TYPES_BATCH, AVANZZA_DOC_TYPES_SERVICIOS, AVANZZA_DOC_TYPES_INSUMOS, TIPO_MAP } from "../utils/constants";
+import { DOCUMENT_TYPES_BATCH, AVANZZA_DOC_TYPES_SERVICIOS, AVANZZA_DOC_TYPES_INSUMOS, TIPO_MAP, AI_MODEL } from "../utils/constants";
 import { fmt } from "../utils/formatters";
 import { sanitizeUserInput } from "../utils/sanitize";
 import { logEvent } from "../utils/auditLog";
@@ -264,7 +264,7 @@ Emisor: ${cfdi.emisor.rfc}              Receptor: ${cfdi.receptor.rfc}`;
                       "anthropic-dangerous-direct-browser-access": "true",
                     },
                     body: JSON.stringify({
-                      model: "claude-sonnet-4-6",
+                      model: AI_MODEL,
                       max_tokens: 4000,
                       messages: [{ role: "user", content: prompt }],
                     }),

@@ -11,9 +11,8 @@
  *   4. CARTA DE ACEPTACIÓN DE COTIZACIÓN
  *   5. CONSTANCIA DE ENTREGA-RECEPCIÓN + TARJETA DE RECEPCIÓN
  *
- * Datos de empresa hardcodeados (se parametrizarán en v3):
- *   EMISOR:  IMC240227MX5 — Infraestructura y Materiales Crea, S.A. de C.V.
- *   RECEPTOR: GOT211208L5A — Goteborg, S.A. de C.V.
+ * Validación pre-vuelo: llamar validateCfdiPartes(cfdis) antes de generateExpedienteDocx
+ * para garantizar que RFC y nombre estén presentes en el CFDI.
  */
 
 import { findFrontingByRfc } from "./avanzza/companiesDB";
@@ -99,42 +98,42 @@ async function fetchMembretado(companyId) {
   return data ? { data, type: "png" } : null;
 }
 
-// ─── Fallback de empresa (usado solo si cfdi no trae datos) ──────────────────
+// ─── Validación pre-vuelo ────────────────────────────────────────────────────
 
-const EMISOR_DEFAULT = {
-  nombre: "INFRAESTRUCTURA Y MATERIALES CREA, S.A. DE C.V.",
-  rfc: "IMC240227MX5",
-  dir: "Melquiades Campos 3152, Col. Santa Cecilia 1a Sección, C.P. 44700, Guadalajara, Jal.",
-  firmante: "Representante Legal",
-  cargo: "Representante Legal",
-};
+/**
+ * Verifica que cada CFDI tiene los datos mínimos para generar el Word.
+ * Llamar ANTES de generateExpedienteDocx para mostrar el error al usuario.
+ * @returns {{ valid: boolean, errors: string[] }}
+ */
+export function validateCfdiPartes(cfdis) {
+  const errors = [];
+  const cfdiArray = Array.isArray(cfdis) ? cfdis : [cfdis];
+  for (const [i, cfdi] of cfdiArray.entries()) {
+    const folio = cfdi._folioControl || cfdi.folio || `#${i + 1}`;
+    if (!cfdi.emisor?.rfc?.trim())    errors.push(`Folio ${folio}: RFC del emisor está vacío.`);
+    if (!cfdi.emisor?.nombre?.trim()) errors.push(`Folio ${folio}: Nombre del emisor está vacío.`);
+    if (!cfdi.receptor?.rfc?.trim())    errors.push(`Folio ${folio}: RFC del receptor está vacío.`);
+    if (!cfdi.receptor?.nombre?.trim()) errors.push(`Folio ${folio}: Nombre del receptor está vacío.`);
+  }
+  return { valid: errors.length === 0, errors };
+}
 
-const RECEPTOR_DEFAULT = {
-  nombre: "GOTEBORG, S.A. DE C.V.",
-  rfc: "GOT211208L5A",
-  dir: "Ramón Corona 663, Col. Santa Anita, C.P. 45645, Tlajomulco de Zúñiga, Jal.",
-  firmante: "Representante Legal",
-  cargo: "Representante Legal",
-};
-
-/** Construye el objeto de empresa a partir del cfdi y los fallbacks */
+/** Construye el objeto de empresa a partir de los datos del CFDI (sin fallbacks hardcodeados) */
 function resolvePartes(cfdi) {
-  const emisorNombre = (cfdi.emisor?.nombre || EMISOR_DEFAULT.nombre).toUpperCase();
-  const receptorNombre = (cfdi.receptor?.nombre || RECEPTOR_DEFAULT.nombre).toUpperCase();
   return {
     emisor: {
-      nombre: emisorNombre,
-      rfc: cfdi.emisor?.rfc || EMISOR_DEFAULT.rfc,
-      dir: cfdi._emisorDomicilio || EMISOR_DEFAULT.dir,
-      firmante: EMISOR_DEFAULT.firmante,
-      cargo: EMISOR_DEFAULT.cargo,
+      nombre: (cfdi.emisor?.nombre || "").toUpperCase(),
+      rfc: cfdi.emisor?.rfc || "",
+      dir: cfdi._emisorDomicilio || "Sin domicilio registrado",
+      firmante: "Representante Legal",
+      cargo: "Representante Legal",
     },
     receptor: {
-      nombre: receptorNombre,
-      rfc: cfdi.receptor?.rfc || RECEPTOR_DEFAULT.rfc,
-      dir: cfdi._receptorDomicilio || RECEPTOR_DEFAULT.dir,
-      firmante: RECEPTOR_DEFAULT.firmante,
-      cargo: RECEPTOR_DEFAULT.cargo,
+      nombre: (cfdi.receptor?.nombre || "").toUpperCase(),
+      rfc: cfdi.receptor?.rfc || "",
+      dir: cfdi._receptorDomicilio || "Sin domicilio registrado",
+      firmante: "Representante Legal",
+      cargo: "Representante Legal",
     },
   };
 }

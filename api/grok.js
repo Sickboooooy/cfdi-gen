@@ -5,6 +5,8 @@
  * Variables de entorno requeridas en Vercel:
  *   GROK_API_KEY — clave de la API de xAI (sin prefijo VITE_)
  */
+import { GROK_MODEL } from '../src/utils/constants.js';
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -27,7 +29,7 @@ export default async function handler(req, res) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${grokKey}`,
       },
-      body: JSON.stringify({ model: "grok-4", max_tokens, messages }),
+      body: JSON.stringify({ model: GROK_MODEL, max_tokens, messages }),
     });
 
     const data = await upstream.json();

@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import { GROK_MODEL } from './src/utils/constants.js'
 
 // Plugin que simula las funciones serverless de Vercel en dev local
 function devApiPlugin(env) {
@@ -26,7 +27,7 @@ function devApiPlugin(env) {
             const upstream = await fetch('https://api.x.ai/v1/chat/completions', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${grokKey}` },
-              body: JSON.stringify({ model: 'grok-3', max_tokens, messages }),
+              body: JSON.stringify({ model: GROK_MODEL, max_tokens, messages }),
             })
             const data = await upstream.json()
             if (!upstream.ok || data.error) {

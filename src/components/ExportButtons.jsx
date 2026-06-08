@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { saveAs } from "file-saver";
-import { generateExpedienteDocx } from "../utils/generateDocx";
+import { generateExpedienteDocx, validateCfdiPartes } from "../utils/generateDocx";
 import { generateExpedienteXlsx } from "../utils/generateXlsx";
 import { demoPrefix } from "../utils/demoMode";
 import { findFrontingByRfc, FRONTINGS } from "../utils/avanzza/companiesDB";
@@ -15,6 +15,7 @@ export default function ExportButtons({ cfdis, results, rubro, disabled, selecte
   const [downloadingDocx, setDownloadingDocx] = useState(false);
   const [downloadingXlsx, setDownloadingXlsx] = useState(false);
   const [manualCompanyId, setManualCompanyId] = useState("");
+  const [exportError, setExportError] = useState("");
   const [drive, setDrive] = useState({ phase: "idle", progress: "", uploaded: [], folderPath: "", folderLink: "", error: "" });
 
   const successResults = results.filter((r) => !r.error);
@@ -32,6 +33,14 @@ export default function ExportButtons({ cfdis, results, rubro, disabled, selecte
   // ── Word: un archivo combinado ────────────────────────────────────────────
   const handleDownloadDocx = async () => {
     if (!cfdis?.length || !successCount) return;
+
+    const validation = validateCfdiPartes(cfdis);
+    if (!validation.valid) {
+      setExportError(validation.errors.join(" · "));
+      return;
+    }
+    setExportError("");
+
     setDownloadingDocx(true);
     try {
       const aiSections = successResults.map((r) => ({
@@ -143,6 +152,17 @@ export default function ExportButtons({ cfdis, results, rubro, disabled, selecte
           </select>
         </div>
       )}
+
+    {exportError && (
+      <div style={{
+        marginBottom: "0.75rem", padding: "0.6rem 0.875rem", borderRadius: "var(--radius-sm)",
+        fontSize: "0.8rem", lineHeight: 1.5,
+        background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.25)",
+        color: "var(--accent-error, #f87171)",
+      }}>
+        <strong>No se puede generar el Word:</strong> {exportError}
+      </div>
+    )}
 
     <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
       {/* ── Word ── */}

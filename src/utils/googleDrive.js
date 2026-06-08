@@ -23,11 +23,12 @@
  *   8. Reiniciar el servidor de desarrollo
  */
 
+import { driveFolderRoot } from "./demoMode";
+
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 const SCOPES = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_LOG_KEY = "cfdi_drive_log";
 const DRIVE_FOLDER_CACHE_KEY = "cfdi_drive_root_folder";
-const DRIVE_ROOT_NAME = "Itosturre · CFDI-DOC GEN";
 
 // ─── Estado interno ───────────────────────────────────────────────────────────
 
@@ -307,13 +308,13 @@ async function getOrCreateDeepFolder(emisorRfc, emisorNombre) {
   const nombreCorto = (emisorNombre.split(",")[0] || emisorNombre).trim().slice(0, 40);
   const rfcNombreFolder = `${emisorRfc} — ${nombreCorto}`;
   const cacheKey = `${DRIVE_FOLDER_CACHE_KEY}_v2_${year}_${emisorRfc}`;
-  const folderPath = `${DRIVE_ROOT_NAME} / ${year} / ${rfcNombreFolder}`;
+  const folderPath = `${driveFolderRoot()} / ${year} / ${rfcNombreFolder}`;
 
   const cached = localStorage.getItem(cacheKey);
   if (cached) return { folderId: cached, folderPath };
 
-  let rootId = await findDriveFolder(DRIVE_ROOT_NAME);
-  if (!rootId) rootId = await createDriveFolder(DRIVE_ROOT_NAME);
+  let rootId = await findDriveFolder(driveFolderRoot());
+  if (!rootId) rootId = await createDriveFolder(driveFolderRoot());
 
   let yearId = await findDriveFolder(year, rootId);
   if (!yearId) yearId = await createDriveFolder(year, rootId);
