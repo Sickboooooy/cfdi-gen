@@ -38,7 +38,6 @@ import {
   TextWrappingSide,
   Header,
   Footer,
-  PageNumber,
 } from "docx";
 
 // ─── Helpers de imagen ───────────────────────────────────────────────────────
@@ -316,21 +315,7 @@ function makeHeader(folio, emisorCorto, receptorCorto, membretadoData) {
 }
 
 function makeEmptyFooter() {
-  return new Footer({
-    children: [
-      new Paragraph({
-        children: [
-          new TextRun({ text: "CFDI-GEN · Itosturre Legaltech  |  Pág. ", font: "Arial", size: 16, color: COLORS.GRAY_TEXT }),
-          new TextRun({ children: [PageNumber.CURRENT], font: "Arial", size: 16, color: COLORS.GRAY_TEXT }),
-          new TextRun({ text: " / ", font: "Arial", size: 16, color: COLORS.GRAY_TEXT }),
-          new TextRun({ children: [PageNumber.TOTAL_PAGES], font: "Arial", size: 16, color: COLORS.GRAY_TEXT }),
-        ],
-        alignment: AlignmentType.CENTER,
-        border: { top: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" } },
-        spacing: { before: 80 },
-      }),
-    ],
-  });
+  return new Footer({ children: [] });
 }
 
 // ─── SECCIÓN 1: PORTADA ───────────────────────────────────────────────────────
