@@ -38,6 +38,9 @@ import {
   TextWrappingSide,
   Header,
   Footer,
+  PageNumber,
+  VerticalAlign,
+  TableLayoutType,
 } from "docx";
 
 // ─── Helpers de imagen ───────────────────────────────────────────────────────
@@ -75,6 +78,44 @@ async function fetchImage(url) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Lee las dimensiones reales (px) de un PNG o JPEG desde su ArrayBuffer.
+ * Retorna { width, height } o null si no se pueden determinar.
+ */
+function getImageDims(buffer) {
+  const b = new DataView(buffer);
+  if (b.byteLength < 24) return null;
+  // PNG: firma 89 50 4E 47 → IHDR en offset 16
+  if (b.getUint32(0) === 0x89504e47) {
+    return { width: b.getUint32(16), height: b.getUint32(20) };
+  }
+  // JPEG: FF D8 → escanear segmentos hasta SOF0/SOF2
+  if (b.getUint16(0) === 0xffd8) {
+    let off = 2;
+    while (off + 9 < b.byteLength) {
+      if (b.getUint8(off) !== 0xff) break;
+      const marker = b.getUint8(off + 1);
+      const len = b.getUint16(off + 2);
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return { height: b.getUint16(off + 5), width: b.getUint16(off + 7) };
+      }
+      off += 2 + len;
+    }
+  }
+  return null;
+}
+
+/**
+ * Calcula el tamaño de render del logo conservando proporción,
+ * encajándolo en una caja máxima (maxW × maxH).
+ */
+function fitLogo(buffer, maxW = 200, maxH = 70) {
+  const dims = getImageDims(buffer);
+  if (!dims || !dims.width || !dims.height) return { width: maxW, height: maxH };
+  const scale = Math.min(maxW / dims.width, maxH / dims.height);
+  return { width: Math.round(dims.width * scale), height: Math.round(dims.height * scale) };
 }
 
 /** Extensiones posibles de logos por companyId */
@@ -200,13 +241,15 @@ function pageBreak() {
 
 /** Párrafo de logotipo — imagen real si está disponible, texto si no */
 function logoParagraph(empresa, logoObj) {
+  // false = suprimir logo y placeholder (p. ej. sobre hoja membretada que ya trae logo)
+  if (logoObj === false) return p([]);
   if (logoObj?.data) {
     return new Paragraph({
       children: [
         new ImageRun({
           data: logoObj.data,
           type: logoObj.type || "png",
-          transformation: { width: 220, height: 72 },
+          transformation: fitLogo(logoObj.data),
         }),
       ],
       alignment: AlignmentType.CENTER,
@@ -231,11 +274,27 @@ function signatureLine(label) {
   });
 }
 
+/** Borde fino gris para todas las tablas (más elegante que el negro por defecto) */
+const THIN_BORDER = { style: BorderStyle.SINGLE, size: 4, color: "B8C4CC" };
+const TABLE_BORDERS = {
+  top: THIN_BORDER,
+  bottom: THIN_BORDER,
+  left: THIN_BORDER,
+  right: THIN_BORDER,
+  insideHorizontal: THIN_BORDER,
+  insideVertical: THIN_BORDER,
+};
+
+/** Padding interno uniforme de celdas (twips) */
+const CELL_MARGINS = { top: 60, bottom: 60, left: 110, right: 110 };
+
 /** Celda de tabla simple */
 function tc(children, opts = {}) {
   const cellChildren = Array.isArray(children) ? children : [typeof children === "string" ? p(children) : children];
   return new TableCell({
     children: cellChildren,
+    verticalAlign: opts.verticalAlign ?? VerticalAlign.CENTER,
+    margins: CELL_MARGINS,
     shading: opts.shading
       ? { type: ShadingType.SOLID, color: opts.shading }
       : undefined,
@@ -251,9 +310,19 @@ function tc(children, opts = {}) {
   });
 }
 
-/** Fila de tabla simple */
-function trow(cells) {
-  return new TableRow({ children: cells });
+/** Fila de tabla simple. opts.header → la fila se repite al saltar de página */
+function trow(cells, opts = {}) {
+  return new TableRow({ children: cells, tableHeader: opts.header ?? false });
+}
+
+/** Tabla a ancho completo con bordes finos y layout fijo (columnas estables) */
+function makeTable(rows) {
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    layout: TableLayoutType.FIXED,
+    borders: TABLE_BORDERS,
+    rows,
+  });
 }
 
 // ─── Header y Footer ─────────────────────────────────────────────────────────
@@ -314,8 +383,25 @@ function makeHeader(folio, emisorCorto, receptorCorto, membretadoData) {
   return new Header({ children });
 }
 
-function makeEmptyFooter() {
-  return new Footer({ children: [] });
+function makeFooter(folio, withMembretado) {
+  return new Footer({
+    children: [
+      new Paragraph({
+        children: [
+          new TextRun({ text: `Expediente ${folio}  ·  Página `, font: "Arial", size: 14, color: COLORS.GRAY_TEXT }),
+          new TextRun({ children: [PageNumber.CURRENT], font: "Arial", size: 14, color: COLORS.GRAY_TEXT }),
+          new TextRun({ text: " de ", font: "Arial", size: 14, color: COLORS.GRAY_TEXT }),
+          new TextRun({ children: [PageNumber.TOTAL_PAGES_IN_SECTION], font: "Arial", size: 14, color: COLORS.GRAY_TEXT }),
+        ],
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 40 },
+        // Sobre membretado no se dibuja línea (la hoja ya trae diseño propio)
+        border: withMembretado ? undefined : {
+          top: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
+        },
+      }),
+    ],
+  });
 }
 
 // ─── SECCIÓN 1: PORTADA ───────────────────────────────────────────────────────
@@ -414,10 +500,7 @@ function buildPortada(cfdi, partes, logos) {
   ];
 
   return [
-    new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      rows,
-    }),
+    makeTable(rows),
     p([]),
     p([tr("Guadalajara, Jalisco, a " + new Date().toLocaleDateString("es-MX", { year: "numeric", month: "long", day: "numeric" }), { color: COLORS.GRAY_TEXT })], { align: AlignmentType.CENTER }),
   ];
@@ -460,15 +543,13 @@ function buildCartaSolicitud(cfdi, partes, logos) {
     ...(() => {
       const prods = cfdi._productosRaw || cfdi.conceptos || [];
       if (prods.length === 0) return [];
-      return [new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        rows: [
+      return [makeTable([
           trow([
             tc([p([tr("#", { bold: true, color: COLORS.WHITE, size: 20 })])], { shading: COLORS.NAVY, width: 6 }),
             tc([p([tr("Concepto / Descripción", { bold: true, color: COLORS.WHITE, size: 20 })])], { shading: COLORS.NAVY, width: 54 }),
             tc([p([tr("Cant.", { bold: true, color: COLORS.WHITE, size: 20 })], { align: AlignmentType.RIGHT })], { shading: COLORS.NAVY, width: 12 }),
             tc([p([tr("Importe", { bold: true, color: COLORS.WHITE, size: 20 })], { align: AlignmentType.RIGHT })], { shading: COLORS.NAVY, width: 28 }),
-          ]),
+          ], { header: true }),
           ...prods.map((prod, i) => {
             const desc = prod.desc || prod.descripcion || "";
             const cant = prod.cantidad ?? "";
@@ -481,8 +562,7 @@ function buildCartaSolicitud(cfdi, partes, logos) {
               tc([p([tr(fmtMXN(importe))], { align: AlignmentType.RIGHT })], { shading: shade, width: 28 }),
             ]);
           }),
-        ],
-      })];
+        ])];
     })(),
     p([]),
     p([
@@ -519,7 +599,7 @@ function buildCotizacion(cfdi, partes, logos) {
     tc([p([tr("Cantidad", { bold: true, color: COLORS.WHITE, size: 20 })], { align: AlignmentType.RIGHT })], { shading: COLORS.NAVY, width: 9 }),
     tc([p([tr("Valor Unitario", { bold: true, color: COLORS.WHITE, size: 20 })], { align: AlignmentType.RIGHT })], { shading: COLORS.NAVY, width: 16 }),
     tc([p([tr("Importe", { bold: true, color: COLORS.WHITE, size: 20 })], { align: AlignmentType.RIGHT })], { shading: COLORS.NAVY, width: 17 }),
-  ]);
+  ], { header: true });
 
   const prodRows = prods.map((prod, i) => {
     const desc = prod.desc || prod.descripcion || "";
@@ -589,10 +669,7 @@ function buildCotizacion(cfdi, partes, logos) {
       tr(":"),
     ]),
     p([]),
-    new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      rows: [headerRow, ...prodRows, ...totalsRows],
-    }),
+    makeTable([headerRow, ...prodRows, ...totalsRows]),
     p([]),
     p([tr("Esta cotización tiene una vigencia de 15 días naturales a partir de su fecha de emisión.")]),
     p([]),
@@ -695,9 +772,7 @@ function buildConstanciaEntrega(cfdi, partes, logos) {
     p([]),
 
     // Tabla de firmas (PROVEEDOR | RECEPTOR)
-    new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      rows: [
+    makeTable([
         trow([
           tc([p([tr("PROVEEDOR", { bold: true, color: COLORS.NAVY })], { align: AlignmentType.CENTER })], { shading: COLORS.GRAY_LIGHT }),
           tc([p([tr("RECEPTOR", { bold: true, color: COLORS.NAVY })], { align: AlignmentType.CENTER })], { shading: COLORS.GRAY_LIGHT }),
@@ -724,16 +799,13 @@ function buildConstanciaEntrega(cfdi, partes, logos) {
             p([tr(`RFC: ${RECEPTOR.rfc}`, { size: 18 })]),
           ]),
         ]),
-      ],
-    }),
+      ]),
 
     p([]),
     p([]),
     // TARJETA DE RECEPCIÓN
     p([tr("TARJETA DE RECEPCIÓN", { bold: true, size: 24, color: COLORS.NAVY })]),
-    new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      rows: [
+    makeTable([
         trow([
           tc([p([tr("Folio:", { bold: true }), tr(` ${folioId}`)])]),
           tc([p([tr("Fecha de Recepción:", { bold: true }), tr(` ${fechaRec}`)])]),
@@ -753,8 +825,7 @@ function buildConstanciaEntrega(cfdi, partes, logos) {
             p([tr("[  ESPACIO PARA SELLO  ]", { color: COLORS.GRAY_TEXT, italics: true })], { align: AlignmentType.CENTER }),
           ], { width: 100 }),
         ]),
-      ],
-    }),
+      ]),
   ];
 }
 
@@ -803,6 +874,12 @@ export async function generateExpedienteDocx(cfdisInput, aiSections, options = {
     receptorLogo: receptorLogoData,
   };
 
+  // En cartas sobre hoja membretada el logo del receptor ya viene en el arte:
+  // suprimirlo para no duplicarlo (false ≠ null: false omite también el placeholder)
+  const logosCartaMembretada = membretadoData
+    ? { ...logos, receptorLogo: false }
+    : logos;
+
   // Nombres cortos para el header (empresa compartida por todo el batch)
   const partes0 = resolvePartes(cfdi0);
   const emisorCorto = (partes0.emisor.nombre.split(",")[0] || "").trim().slice(0, 20);
@@ -810,6 +887,10 @@ export async function generateExpedienteDocx(cfdisInput, aiSections, options = {
 
   // Propiedades de página comunes
   const PAGE_PROPS = { page: { margin: { top: 1000, right: 900, bottom: 1000, left: 900 } } };
+
+  // Páginas con membretado: márgenes mayores para no encimar el texto
+  // sobre el arte de la hoja membretada (encabezado y pie del diseño)
+  const PAGE_PROPS_MEMBRETADO = { page: { margin: { top: 2100, right: 1100, bottom: 1700, left: 1100 } } };
 
   // DocTypes del receptor (el fronting firma/escribe) → llevan membretado
   const RECEPTOR_DOC_TYPES = new Set([
@@ -827,22 +908,25 @@ export async function generateExpedienteDocx(cfdisInput, aiSections, options = {
 
     // Crea una sección Word con/sin membretado para este folio
     // Cada llamada produce un Header nuevo (el docx library no puede reusar instancias entre secciones)
-    const docSection = (children, withMembretado = false) => ({
-      headers: { default: makeHeader(folioId, emisorCorto, receptorCorto, withMembretado ? membretadoData : null) },
-      footers: { default: makeEmptyFooter() },
-      properties: PAGE_PROPS,
-      children,
-    });
+    const docSection = (children, withMembretado = false) => {
+      const useMembretado = withMembretado && !!membretadoData;
+      return {
+        headers: { default: makeHeader(folioId, emisorCorto, receptorCorto, useMembretado ? membretadoData : null) },
+        footers: { default: makeFooter(folioId, useMembretado) },
+        properties: useMembretado ? PAGE_PROPS_MEMBRETADO : PAGE_PROPS,
+        children,
+      };
+    };
 
     wordSections.push(
       // 1. Portada — sin membretado (hoja de resumen neutral)
       docSection(buildPortada(cfdi, partes, logos), false),
       // 2. Carta de Solicitud — CON membretado (receptor solicita al emisor)
-      docSection(buildCartaSolicitud(cfdi, partes, logos), true),
+      docSection(buildCartaSolicitud(cfdi, partes, logosCartaMembretada), true),
       // 3. Cotización — sin membretado (emisor cotiza al receptor)
       docSection(buildCotizacion(cfdi, partes, logos), false),
       // 4. Carta de Aceptación — CON membretado (receptor acepta la cotización)
-      docSection(buildCartaAceptacion(cfdi, partes, logos), true),
+      docSection(buildCartaAceptacion(cfdi, partes, logosCartaMembretada), true),
       // 5. Constancia de Entrega-Recepción — sin membretado (documento conjunto)
       docSection(buildConstanciaEntrega(cfdi, partes, logos), false),
       // Documentos IA — membretado según quién es el autor del tipo de documento
