@@ -240,7 +240,7 @@ function pageBreak() {
 }
 
 /** Párrafo de logotipo — imagen real si está disponible, texto si no */
-function logoParagraph(empresa, logoObj) {
+function logoParagraph(empresa, logoObj, align = AlignmentType.CENTER) {
   // false = suprimir logo y placeholder (p. ej. sobre hoja membretada que ya trae logo)
   if (logoObj === false) return p([]);
   if (logoObj?.data) {
@@ -252,13 +252,13 @@ function logoParagraph(empresa, logoObj) {
           transformation: fitLogo(logoObj.data),
         }),
       ],
-      alignment: AlignmentType.CENTER,
+      alignment: align,
       spacing: { before: 80, after: 80 },
     });
   }
   return new Paragraph({
     children: [tr(`[ LOGOTIPO ${empresa} ]`, { color: COLORS.GRAY_TEXT, italics: true })],
-    alignment: AlignmentType.CENTER,
+    alignment: align,
     spacing: { before: 100, after: 100 },
   });
 }
@@ -295,6 +295,7 @@ function tc(children, opts = {}) {
     children: cellChildren,
     verticalAlign: opts.verticalAlign ?? VerticalAlign.CENTER,
     margins: CELL_MARGINS,
+    columnSpan: opts.columnSpan,
     shading: opts.shading
       ? { type: ShadingType.SOLID, color: opts.shading }
       : undefined,
@@ -412,90 +413,108 @@ function buildPortada(cfdi, partes, logos) {
   const isExcel = cfdi._fromExcel === true;
   const folioId = isExcel ? cfdi._folioControl : (cfdi.folio || cfdi.serie || "");
 
+  // Todas las filas usan la misma cuadrícula de 2 columnas: 35% etiqueta | 65% valor.
+  // Las filas de encabezado de sección abarcan ambas columnas con columnSpan: 2,
+  // y la fila de logos también usa columnSpan: 2 con logos alineados a cada extremo,
+  // para que el motor de tablas fijo de Word tenga una grilla coherente en todo momento.
   const rows = [
-    // Fila de logos (emisor izq | receptor der) — sin bordes visibles
+    // Logos (emisor izq / receptor der) en celda única que abarca las 2 columnas
     trow([
-      tc([logoParagraph(EMISOR.nombre, emisorLogo)], { width: 50, noBorder: true }),
-      tc([logoParagraph(RECEPTOR.nombre, receptorLogo)], { width: 50, noBorder: true }),
+      tc([
+        logoParagraph(EMISOR.nombre, emisorLogo, AlignmentType.LEFT),
+        logoParagraph(RECEPTOR.nombre, receptorLogo, AlignmentType.RIGHT),
+      ], { columnSpan: 2, noBorder: true }),
     ]),
-    // Header de la tabla
+    // Encabezados de la tabla
     trow([
       tc(
         [p([tr("EXPEDIENTE DE MATERIALIDAD FISCAL", { bold: true, size: 24, color: COLORS.WHITE })], { align: AlignmentType.CENTER })],
-        { shading: COLORS.NAVY, width: 100 }
+        { shading: COLORS.NAVY, columnSpan: 2 }
       ),
     ]),
-    trow([tc([p([tr("DATOS DEL FOLIO DE CONTROL", { bold: true, color: COLORS.WHITE, size: 20 })], { align: AlignmentType.CENTER })], { shading: COLORS.BLUE_MID, width: 100 })]),
+    trow([
+      tc([p([tr("DATOS DEL FOLIO DE CONTROL", { bold: true, color: COLORS.WHITE, size: 20 })], { align: AlignmentType.CENTER })],
+        { shading: COLORS.BLUE_MID, columnSpan: 2 }),
+    ]),
     // Datos del folio
     trow([
       tc([p([tr("Folio de Control:", { bold: true })])], { shading: COLORS.GRAY_LIGHT, width: 35 }),
       tc([p([tr(folioId)])], { width: 65 }),
     ]),
     trow([
-      tc([p([tr("UUID / Folio Fiscal:", { bold: true })])], { shading: COLORS.GRAY_LIGHT }),
-      tc([p([tr(cfdi.uuid || "[UUID-CFDI-COMPLETAR]")])]),
+      tc([p([tr("UUID / Folio Fiscal:", { bold: true })])], { shading: COLORS.GRAY_LIGHT, width: 35 }),
+      tc([p([tr(cfdi.uuid || "[UUID-CFDI-COMPLETAR]")])], { width: 65 }),
     ]),
     trow([
-      tc([p([tr("Fecha de Solicitud:", { bold: true })])], { shading: COLORS.GRAY_LIGHT }),
-      tc([p([tr(cfdi._fechaSolicitud || cfdi.fecha || "")])]),
+      tc([p([tr("Fecha de Solicitud:", { bold: true })])], { shading: COLORS.GRAY_LIGHT, width: 35 }),
+      tc([p([tr(cfdi._fechaSolicitud || cfdi.fecha || "")])], { width: 65 }),
     ]),
     trow([
-      tc([p([tr("Fecha de Cotización:", { bold: true })])], { shading: COLORS.GRAY_LIGHT }),
-      tc([p([tr(cfdi._fechaCotizacion || "")])]),
+      tc([p([tr("Fecha de Cotización:", { bold: true })])], { shading: COLORS.GRAY_LIGHT, width: 35 }),
+      tc([p([tr(cfdi._fechaCotizacion || "")])], { width: 65 }),
     ]),
     trow([
-      tc([p([tr("Fecha de Aceptación:", { bold: true })])], { shading: COLORS.GRAY_LIGHT }),
-      tc([p([tr(cfdi._fechaAceptacion || "")])]),
+      tc([p([tr("Fecha de Aceptación:", { bold: true })])], { shading: COLORS.GRAY_LIGHT, width: 35 }),
+      tc([p([tr(cfdi._fechaAceptacion || "")])], { width: 65 }),
     ]),
     trow([
-      tc([p([tr("Fecha de Recepción:", { bold: true })])], { shading: COLORS.GRAY_LIGHT }),
-      tc([p([tr(cfdi._fechaRecepcion || cfdi.fechaTimbrado || "")])]),
+      tc([p([tr("Fecha de Recepción:", { bold: true })])], { shading: COLORS.GRAY_LIGHT, width: 35 }),
+      tc([p([tr(cfdi._fechaRecepcion || cfdi.fechaTimbrado || "")])], { width: 65 }),
     ]),
     // Emisor
-    trow([tc([p([tr("EMISOR / PROVEEDOR", { bold: true, color: COLORS.WHITE })], { align: AlignmentType.CENTER })], { shading: COLORS.BLUE_MID, width: 100 })]),
     trow([
-      tc([p([tr("Razón Social:", { bold: true })])], { shading: COLORS.GRAY_LIGHT }),
-      tc([p([tr(cfdi.emisor?.nombre || EMISOR.nombre)])]),
+      tc([p([tr("EMISOR / PROVEEDOR", { bold: true, color: COLORS.WHITE })], { align: AlignmentType.CENTER })],
+        { shading: COLORS.BLUE_MID, columnSpan: 2 }),
     ]),
     trow([
-      tc([p([tr("RFC:", { bold: true })])], { shading: COLORS.GRAY_LIGHT }),
-      tc([p([tr(cfdi.emisor?.rfc || EMISOR.rfc)])]),
+      tc([p([tr("Razón Social:", { bold: true })])], { shading: COLORS.GRAY_LIGHT, width: 35 }),
+      tc([p([tr(cfdi.emisor?.nombre || EMISOR.nombre)])], { width: 65 }),
     ]),
     trow([
-      tc([p([tr("Domicilio:", { bold: true })])], { shading: COLORS.GRAY_LIGHT }),
-      tc([p([tr(EMISOR.dir)])]),
+      tc([p([tr("RFC:", { bold: true })])], { shading: COLORS.GRAY_LIGHT, width: 35 }),
+      tc([p([tr(cfdi.emisor?.rfc || EMISOR.rfc)])], { width: 65 }),
+    ]),
+    trow([
+      tc([p([tr("Domicilio:", { bold: true })])], { shading: COLORS.GRAY_LIGHT, width: 35 }),
+      tc([p([tr(EMISOR.dir)])], { width: 65 }),
     ]),
     // Receptor
-    trow([tc([p([tr("RECEPTOR / CLIENTE", { bold: true, color: COLORS.WHITE })], { align: AlignmentType.CENTER })], { shading: COLORS.BLUE_MID, width: 100 })]),
     trow([
-      tc([p([tr("Razón Social:", { bold: true })])], { shading: COLORS.GRAY_LIGHT }),
-      tc([p([tr(cfdi.receptor?.nombre || RECEPTOR.nombre)])]),
+      tc([p([tr("RECEPTOR / CLIENTE", { bold: true, color: COLORS.WHITE })], { align: AlignmentType.CENTER })],
+        { shading: COLORS.BLUE_MID, columnSpan: 2 }),
     ]),
     trow([
-      tc([p([tr("RFC:", { bold: true })])], { shading: COLORS.GRAY_LIGHT }),
-      tc([p([tr(cfdi.receptor?.rfc || RECEPTOR.rfc)])]),
+      tc([p([tr("Razón Social:", { bold: true })])], { shading: COLORS.GRAY_LIGHT, width: 35 }),
+      tc([p([tr(cfdi.receptor?.nombre || RECEPTOR.nombre)])], { width: 65 }),
     ]),
     trow([
-      tc([p([tr("Domicilio:", { bold: true })])], { shading: COLORS.GRAY_LIGHT }),
-      tc([p([tr(RECEPTOR.dir)])]),
+      tc([p([tr("RFC:", { bold: true })])], { shading: COLORS.GRAY_LIGHT, width: 35 }),
+      tc([p([tr(cfdi.receptor?.rfc || RECEPTOR.rfc)])], { width: 65 }),
+    ]),
+    trow([
+      tc([p([tr("Domicilio:", { bold: true })])], { shading: COLORS.GRAY_LIGHT, width: 35 }),
+      tc([p([tr(RECEPTOR.dir)])], { width: 65 }),
     ]),
     // Totales
-    trow([tc([p([tr("IMPORTES", { bold: true, color: COLORS.WHITE })], { align: AlignmentType.CENTER })], { shading: COLORS.BLUE_MID, width: 100 })]),
     trow([
-      tc([p([tr("Subtotal:", { bold: true })])], { shading: COLORS.GRAY_LIGHT }),
-      tc([p([tr(fmtMXN(cfdi.subtotal))])]),
+      tc([p([tr("IMPORTES", { bold: true, color: COLORS.WHITE })], { align: AlignmentType.CENTER })],
+        { shading: COLORS.BLUE_MID, columnSpan: 2 }),
     ]),
     trow([
-      tc([p([tr("IVA (16%):", { bold: true })])], { shading: COLORS.GRAY_LIGHT }),
-      tc([p([tr(fmtMXN(cfdi.totalImpuestos || cfdi._iva))])]),
+      tc([p([tr("Subtotal:", { bold: true })])], { shading: COLORS.GRAY_LIGHT, width: 35 }),
+      tc([p([tr(fmtMXN(cfdi.subtotal))])], { width: 65 }),
     ]),
     trow([
-      tc([p([tr("TOTAL:", { bold: true })])], { shading: COLORS.GREEN_LIGHT }),
-      tc([p([tr(fmtMXN(cfdi.total), { bold: true, color: COLORS.GREEN_DARK })])], { shading: COLORS.GREEN_LIGHT }),
+      tc([p([tr("IVA (16%):", { bold: true })])], { shading: COLORS.GRAY_LIGHT, width: 35 }),
+      tc([p([tr(fmtMXN(cfdi.totalImpuestos || cfdi._iva))])], { width: 65 }),
     ]),
     trow([
-      tc([p([tr("Total con letra:", { bold: true })])], { shading: COLORS.GRAY_LIGHT }),
-      tc([p([tr(cfdi._totalLetra || "")])]),
+      tc([p([tr("TOTAL:", { bold: true })])], { shading: COLORS.GREEN_LIGHT, width: 35 }),
+      tc([p([tr(fmtMXN(cfdi.total), { bold: true, color: COLORS.GREEN_DARK })])], { shading: COLORS.GREEN_LIGHT, width: 65 }),
+    ]),
+    trow([
+      tc([p([tr("Total con letra:", { bold: true })])], { shading: COLORS.GRAY_LIGHT, width: 35 }),
+      tc([p([tr(cfdi._totalLetra || "")])], { width: 65 }),
     ]),
   ];
 
