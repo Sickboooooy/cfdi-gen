@@ -826,12 +826,12 @@ function buildConstanciaEntrega(cfdi, partes, logos) {
     p([tr("TARJETA DE RECEPCIÓN", { bold: true, size: 24, color: COLORS.NAVY })]),
     makeTable([
         trow([
-          tc([p([tr("Folio:", { bold: true }), tr(` ${folioId}`)])]),
-          tc([p([tr("Fecha de Recepción:", { bold: true }), tr(` ${fechaRec}`)])]),
+          tc([p([tr("Folio:", { bold: true }), tr(` ${folioId}`)])], { width: 50 }),
+          tc([p([tr("Fecha de Recepción:", { bold: true }), tr(` ${fechaRec}`)])], { width: 50 }),
         ]),
         trow([
-          tc([p([tr("UUID CFDI:", { bold: true })])]),
-          tc([p([tr(uuid)])]),
+          tc([p([tr("UUID CFDI:", { bold: true })])], { width: 50 }),
+          tc([p([tr(uuid)])], { width: 50 }),
         ]),
         trow([
           tc([
@@ -842,7 +842,7 @@ function buildConstanciaEntrega(cfdi, partes, logos) {
             p([tr("Sello de recepción:", { bold: true })]),
             p([]),
             p([tr("[  ESPACIO PARA SELLO  ]", { color: COLORS.GRAY_TEXT, italics: true })], { align: AlignmentType.CENTER }),
-          ], { width: 100 }),
+          ], { width: 100, columnSpan: 2 }),
         ]),
       ]),
   ];
