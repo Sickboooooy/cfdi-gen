@@ -93,7 +93,31 @@ function FolioCard({ folio, selected, onSelect }) {
           >
             {folio.prods.length} producto{folio.prods.length !== 1 ? "s" : ""}
           </span>
+          {folio.advertencias?.length > 0 && (
+            <span
+              title={folio.advertencias.join("\n")}
+              style={{
+                fontSize: "0.625rem",
+                padding: "1px 6px",
+                borderRadius: "var(--radius-sm)",
+                background: "rgba(245, 158, 11, 0.12)",
+                color: "#fbbf24",
+                border: "1px solid rgba(245, 158, 11, 0.3)",
+                fontWeight: 600,
+                cursor: "help",
+              }}
+            >
+              <i className="ti ti-alert-triangle" style={{ fontSize: "10px", marginRight: 3 }} aria-hidden="true" />
+              {folio.advertencias.length} advertencia{folio.advertencias.length !== 1 ? "s" : ""}
+            </span>
+          )}
         </div>
+        {folio.proveedor && (
+          <div style={{ fontSize: "0.6875rem", color: "var(--text-tertiary)", marginBottom: "0.25rem" }}>
+            <span style={{ color: "var(--text-muted)" }}>Proveedor: </span>
+            {folio.proveedor}
+          </div>
+        )}
 
         {/* Fechas */}
         <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
