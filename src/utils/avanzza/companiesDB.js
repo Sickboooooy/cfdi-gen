@@ -59,11 +59,12 @@ export const EMISORES_CONOCIDOS = [
     cp: "",
   },
   {
+    // RFC y domicilio tomados del expediente de referencia "finales WORD" (corrida STEEL Y ANGANA)
     nombre: "Angana Construccion y Adecuacion de Espacios Innovadores, S.A. de C.V.",
-    rfc: "",
-    domicilio: "",
+    rfc: "ACA240613271",
+    domicilio: "Cuahtemoc 714, Col. Ciudad del Sol, C.P. 45050, Zapopan, Jalisco",
     regimen: "601",
-    cp: "",
+    cp: "45050",
   },
   {
     nombre: "Corporativo de Ventas Zamky, S.A. de C.V.",
